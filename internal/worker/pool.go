@@ -8,24 +8,26 @@ import (
     "log"
     "time"
 
+    "github.com/go-co-op/gocron"
     "rtkron/internal/codeg"
     "rtkron/internal/config"
     "rtkron/internal/store"
 )
 
 type WorkerPool struct {
-    Store   *store.SQLiteStore
-    Client  *codeg.Client
-    Config  *config.Config
-    Events  chan interface{}
-    workers int
-    ctx     context.Context
-    cancel  context.CancelFunc
+    Store     *store.SQLiteStore
+    Client    *codeg.Client
+    Config    *config.Config
+    Events    chan interface{}
+    workers   int
+    ctx       context.Context
+    cancel    context.CancelFunc
+    scheduler *gocron.Scheduler
 }
 
 func NewWorkerPool(ctx context.Context, s *store.SQLiteStore, c *codeg.Client, cfg *config.Config) *WorkerPool {
     poolCtx, cancel := context.WithCancel(ctx)
-    return &WorkerPool{
+    wp := &WorkerPool{
         Store:   s,
         Client:  c,
         Config:  cfg,
@@ -34,16 +36,24 @@ func NewWorkerPool(ctx context.Context, s *store.SQLiteStore, c *codeg.Client, c
         ctx:     poolCtx,
         cancel:  cancel,
     }
+    wp.scheduler = gocron.NewScheduler(time.UTC)
+    return wp
 }
 
 func (w *WorkerPool) Start() {
-    log.Printf("started %d workers", w.workers)
     for i := 1; i <= w.workers; i++ {
         go w.workerLoop(i)
     }
+    log.Printf("started %d workers", w.workers)
+
+    w.scheduler.StartAsync()
+    log.Printf("scheduler started (async)")
 }
 
 func (w *WorkerPool) Stop() {
+    if w.scheduler != nil {
+        w.scheduler.Stop()
+    }
     w.cancel()
 }
 
@@ -56,15 +66,59 @@ func (w *WorkerPool) Enqueue(event interface{}) bool {
     }
 }
 
+// SchedulePromptCron schedules a cron job that will enqueue a prompt payload at the given cron expression.
+func (w *WorkerPool) SchedulePromptCron(cronExpr string, jobID string, payload map[string]interface{}) error {
+    if w.scheduler == nil {
+        return fmt.Errorf("scheduler not initialized")
+    }
+
+    pl := make(map[string]interface{}, len(payload))
+    for k, v := range payload {
+        pl[k] = v
+    }
+
+    job, err := w.scheduler.Cron(cronExpr).Tag(jobID).Do(func() {
+        ev := map[string]interface{}{
+            "event_id":     fmt.Sprintf("cron-%s-%d", jobID, time.Now().Unix()),
+            "type":         "scheduled_prompt",
+            "scheduled_id": jobID,
+            "payload":      pl,
+        }
+        if !w.Enqueue(ev) {
+            _ = w.Store.InsertDeadLetter(stringOrJSON(ev), 0, "queue_full_on_schedule")
+        }
+    })
+    if err != nil {
+        return err
+    }
+    job.SingletonMode()
+    return nil
+}
+
+// RemoveScheduledJob removes scheduled jobs by tag (jobID).
+func (w *WorkerPool) RemoveScheduledJob(jobID string) {
+    if w.scheduler == nil {
+        return
+    }
+    w.scheduler.RemoveByTag(jobID)
+}
+
+// Scheduler returns the internal gocron scheduler for external use (e.g., gocron-ui).
+func (w *WorkerPool) Scheduler() *gocron.Scheduler {
+    return w.scheduler
+}
+
 func (w *WorkerPool) workerLoop(id int) {
     log.Printf("worker-%d running", id)
     for {
         select {
         case <-w.ctx.Done():
-            log.Printf("worker-%d shutting down", id)
+            log.Printf("worker-%d stopping", id)
             return
-        case ev := <-w.Events:
-            w.processEvent(w.ctx, ev)
+        case e := <-w.Events:
+            ctx, cancel := context.WithTimeout(w.ctx, 30*time.Second)
+            w.processEvent(ctx, e)
+            cancel()
         }
     }
 }
@@ -124,7 +178,7 @@ func (w *WorkerPool) processEvent(ctx context.Context, evt interface{}) {
             return
         }
         _ = w.Store.MarkIdempotencyDone(idKey)
-    case "turn_complete":
+    case "turn_complete", "scheduled_prompt":
         if err := w.handleTurnComplete(ctx, eventID, connectionID, sessionID, turnID, evMap); err != nil {
             log.Printf("processEvent: turn_complete failed for %s: %v", eventID, err)
             _ = w.Store.InsertDeadLetter(stringOrJSON(evMap), 1, err.Error())

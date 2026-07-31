@@ -17,11 +17,12 @@
 - Implement cross-platform system tray using `github.com/getlantern/systray`.
 - Add auto-open browser functionality and start-with-windows registry hooks.
 
-## Phase 4: Core Logic (Next)
+## Phase 4: Core Logic (Completed)
 - Write `internal/worker/pool.go`: implement event processing, retry loops, and dead-letter queueing.
 - Write `internal/codeg/client.go`: implement HTTP logic to forward payloads to the Codeg API securely.
 - Write `internal/api/ui_data.go`: wire up backend JSON endpoints to populate the frontend dashboard with live data.
 
-## Phase 5: Verification & Deployment
+## Phase 5: Verification & Deployment (In Progress)
+- Antigravity wired `index.html` frontend to the `ui_data.go` endpoints (Completed).
 - Run full end-to-end webhook tests.
 - Verify binary on CI/CD (GitHub Actions).

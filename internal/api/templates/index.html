@@ -240,15 +240,15 @@
         <div class="grid">
             <div class="card">
                 <h3>System Status</h3>
-                <div class="value"><span class="indicator"></span> Healthy</div>
+                <div class="value" id="stat-status"><span class="indicator"></span> Healthy</div>
             </div>
             <div class="card">
                 <h3>Active Workflows</h3>
-                <div class="value">0</div>
+                <div class="value" id="stat-workflows">0</div>
             </div>
             <div class="card">
                 <h3>Events Processed (24h)</h3>
-                <div class="value">0</div>
+                <div class="value" id="stat-events">0</div>
             </div>
         </div>
 
@@ -263,7 +263,7 @@
                         <th>Time</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="activity-tbody">
                     <!-- Placeholder data until API is fully wired -->
                     <tr>
                         <td style="color: var(--text-muted);">No activity recorded yet.</td>
@@ -276,6 +276,7 @@
         </div>
     </div>
     <script>
+      // Handle Live Reload
       let last = null;
       setInterval(async () => {
         try {
@@ -291,6 +292,49 @@
           // ignore
         }
       }, 2000);
+
+      // Auto-refresh Dashboard Data
+      async function refreshDashboard() {
+        try {
+          // Fetch Stats
+          const statsRes = await fetch('/api/stats');
+          if (statsRes.ok) {
+            const stats = await statsRes.json();
+            document.getElementById('stat-workflows').innerText = stats.workflows || 0;
+            document.getElementById('stat-events').innerText = stats.events || 0;
+          }
+
+          // Fetch Activity
+          const activityRes = await fetch('/api/activity');
+          if (activityRes.ok) {
+            const activities = await activityRes.json();
+            const tbody = document.getElementById('activity-tbody');
+            
+            if (activities && activities.length > 0) {
+              tbody.innerHTML = '';
+              activities.forEach(act => {
+                const tr = document.createElement('tr');
+                let statusClass = 'pending';
+                if (act.status === 'success' || act.status === 'completed') statusClass = 'success';
+                
+                tr.innerHTML = `
+                  <td>${act.id || '-'}</td>
+                  <td>${act.workflow || '-'}</td>
+                  <td><span class="badge ${statusClass}">${act.status || 'unknown'}</span></td>
+                  <td>${new Date(act.time).toLocaleTimeString() || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+              });
+            }
+          }
+        } catch (e) {
+          console.error("Dashboard refresh failed:", e);
+        }
+      }
+
+      // Refresh every 3 seconds
+      setInterval(refreshDashboard, 3000);
+      refreshDashboard(); // Initial load
     </script>
 </body>
 </html>
