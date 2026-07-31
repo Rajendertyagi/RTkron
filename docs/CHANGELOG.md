@@ -15,6 +15,18 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Webhook Idempotency Fix] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `cmd/rtkron/main.go`
+  - `internal/worker/pool.go`
+- **Summary of Changes:**
+  - Fixed critical audit finding #1 (webhook events were always dropped as duplicates): `handleWebhook` now wraps the event in an envelope carrying the reserved idempotency key, and `processEvent` recognizes the envelope, skips the redundant `EnsureIdempotency` re-check for reserved keys, and marks the key done after successful processing.
+  - `processEvent` now routes via `handlePermissionRequest(ctx, evMap)` / `handleTurnComplete(ctx, evMap)`; handlers extract fields from the event map themselves.
+  - Design from user (Rahul): webhook reserves the key at receipt; worker owns status transitions (`received` → `done`).
+
+---
+
 ## [Phase 4 - Code Quality Fixes] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

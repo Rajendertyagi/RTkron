@@ -232,7 +232,14 @@ func handleWebhook(w http.ResponseWriter, r *http.Request, s *store.SQLiteStore,
     w.WriteHeader(http.StatusOK)
     _, _ = w.Write([]byte("ok"))
 
-    if !wp.Enqueue(ev) {
+    // enqueue for async processing (non-blocking); envelope carries the reserved key
+    envelope := map[string]interface{}{
+        "reserved_idempotency_key": idKey,
+        "event":                    ev,
+        "raw_body":                 string(body),
+    }
+
+    if !wp.Enqueue(envelope) {
         log.Println("events channel full; writing to deadletter")
         _ = s.InsertDeadLetter(string(body), 0, "queue_full")
     }

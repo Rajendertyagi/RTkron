@@ -137,10 +137,35 @@ func (w *WorkerPool) workerLoop(id int) {
 }
 
 func (w *WorkerPool) processEvent(ctx context.Context, evt interface{}) {
+	// normalize to a map[string]interface{}
 	var evMap map[string]interface{}
+	var reservedKey string
+	var reserved bool
+
+	// Accept either the envelope from webhook handler or a plain event map
 	switch t := evt.(type) {
 	case map[string]interface{}:
-		evMap = t
+		// check for reserved envelope shape
+		if rk, ok := t["reserved_idempotency_key"].(string); ok && rk != "" {
+			reserved = true
+			reservedKey = rk
+			// extract inner event if present (map or struct)
+			if inner, ok := t["event"]; ok && inner != nil {
+				if m, ok := inner.(map[string]interface{}); ok {
+					evMap = m
+				} else if bs, err := json.Marshal(inner); err == nil {
+					_ = json.Unmarshal(bs, &evMap)
+				}
+			}
+			// fallback: try to parse raw_body
+			if len(evMap) == 0 {
+				if raw, ok := t["raw_body"].(string); ok && raw != "" {
+					_ = json.Unmarshal([]byte(raw), &evMap)
+				}
+			}
+		} else {
+			evMap = t
+		}
 	case []byte:
 		_ = json.Unmarshal(t, &evMap)
 	default:
@@ -152,12 +177,11 @@ func (w *WorkerPool) processEvent(ctx context.Context, evt interface{}) {
 		_ = json.Unmarshal(bs, &evMap)
 	}
 
+	// extract common fields
 	eventID, _ := evMap["event_id"].(string)
 	evType, _ := evMap["type"].(string)
-	connectionID, _ := evMap["connection_id"].(string)
-	sessionID, _ := evMap["session_id"].(string)
-	turnID, _ := evMap["turn_id"].(string)
 
+	// fallback event id if missing
 	if eventID == "" {
 		if p, ok := evMap["payload"].(map[string]interface{}); ok {
 			if id, ok := p["id"].(string); ok && id != "" {
@@ -169,41 +193,69 @@ func (w *WorkerPool) processEvent(ctx context.Context, evt interface{}) {
 		}
 	}
 
-	idKey := "event:" + eventID
-
-	ok, err := w.Store.EnsureIdempotency(idKey)
-	if err != nil {
-		log.Printf("processEvent: idempotency check failed for %s: %v", idKey, err)
-		_ = w.Store.InsertDeadLetter(stringOrJSON(evMap), 0, fmt.Sprintf("idempotency error: %v", err))
-		return
-	}
-	if !ok {
-		log.Printf("processEvent: duplicate event %s; skipping", idKey)
-		return
+	// Determine idempotency key to use
+	var idKey string
+	if reserved {
+		idKey = reservedKey
+	} else {
+		idKey = "event:" + eventID
 	}
 
+	// If not reserved by the webhook handler, ensure idempotency now.
+	if !reserved {
+		ok, err := w.Store.EnsureIdempotency(idKey)
+		if err != nil {
+			log.Printf("processEvent: idempotency check failed for %s: %v", idKey, err)
+			_ = w.Store.InsertDeadLetter(stringOrJSON(evMap), 0, fmt.Sprintf("idempotency error: %v", err))
+			return
+		}
+		if !ok {
+			log.Printf("processEvent: duplicate event %s; skipping", idKey)
+			return
+		}
+	} else {
+		// reserved: webhook handler already inserted idempotency row with status 'received'
+		log.Printf("processEvent: processing reserved event %s (id=%s)", idKey, eventID)
+	}
+
+	// route by type
+	var procErr error
 	switch evType {
 	case "permission_request":
-		if err := w.handlePermissionRequest(ctx, eventID, connectionID, sessionID, evMap); err != nil {
-			log.Printf("processEvent: permission_request failed for %s: %v", eventID, err)
-			_ = w.Store.InsertDeadLetter(stringOrJSON(evMap), 1, err.Error())
-			return
-		}
-		_ = w.Store.MarkIdempotencyDone(idKey)
-	case "turn_complete", "scheduled_prompt":
-		if err := w.handleTurnComplete(ctx, eventID, connectionID, sessionID, turnID, evMap); err != nil {
-			log.Printf("processEvent: turn_complete failed for %s: %v", eventID, err)
-			_ = w.Store.InsertDeadLetter(stringOrJSON(evMap), 1, err.Error())
-			return
-		}
-		_ = w.Store.MarkIdempotencyDone(idKey)
+		procErr = w.handlePermissionRequest(ctx, evMap)
+	case "turn_complete":
+		procErr = w.handleTurnComplete(ctx, evMap)
+	case "scheduled_prompt":
+		// scheduled prompts come from scheduler; reuse turn_complete handler
+		procErr = w.handleTurnComplete(ctx, evMap)
 	default:
 		_ = w.Store.InsertAudit(eventID, "unhandled_event", []byte(stringOrJSON(evMap)))
-		_ = w.Store.MarkIdempotencyDone(idKey)
+		procErr = nil
 	}
+
+	// On failure, write to deadletter and leave status for inspection.
+	if procErr != nil {
+		log.Printf("processEvent: processing failed for %s: %v", idKey, procErr)
+		_ = w.Store.InsertDeadLetter(stringOrJSON(evMap), 1, procErr.Error())
+		return
+	}
+
+	// mark idempotency status = done
+	if err := w.Store.MarkIdempotencyDone(idKey); err != nil {
+		log.Printf("processEvent: failed to mark idempotency done for %s: %v", idKey, err)
+		// best-effort: still record audit
+		_ = w.Store.InsertAudit(eventID, "processed_but_mark_done_failed", []byte(stringOrJSON(evMap)))
+		return
+	}
+
+	// final audit for successful processing
+	_ = w.Store.InsertAudit(eventID, "processed", []byte(stringOrJSON(evMap)))
 }
 
-func (w *WorkerPool) handlePermissionRequest(ctx context.Context, eventID, connectionID, sessionID string, ev map[string]interface{}) error {
+func (w *WorkerPool) handlePermissionRequest(ctx context.Context, ev map[string]interface{}) error {
+	eventID, _ := ev["event_id"].(string)
+	sessionID, _ := ev["session_id"].(string)
+
 	if err := w.Store.InsertAudit(eventID, "permission_request_received", []byte(stringOrJSON(ev))); err != nil {
 		log.Printf("handlePermissionRequest: audit insert failed: %v", err)
 	}
@@ -245,7 +297,12 @@ func (w *WorkerPool) handlePermissionRequest(ctx context.Context, eventID, conne
 	return nil
 }
 
-func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connectionID, sessionID, turnID string, ev map[string]interface{}) error {
+func (w *WorkerPool) handleTurnComplete(ctx context.Context, ev map[string]interface{}) error {
+	eventID, _ := ev["event_id"].(string)
+	connectionID, _ := ev["connection_id"].(string)
+	sessionID, _ := ev["session_id"].(string)
+	turnID, _ := ev["turn_id"].(string)
+
 	if turnID != "" {
 		turnKey := "turn:" + turnID
 		ok, err := w.Store.EnsureIdempotency(turnKey)

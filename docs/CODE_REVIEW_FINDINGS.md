@@ -13,6 +13,7 @@
 - `main.go:220` inserts the idempotency key (`event:` + EventID) via `EnsureIdempotency` and returns 200 OK. The worker then calls `EnsureIdempotency` again on the **same key** (`pool.go:174`), which returns `false`, so `pool.go:181` logs "duplicate event; skipping" and returns.
 - **Impact:** `permission_request` auto-approve and `turn_complete` processing **never run** for webhook events. Only cron events (which bypass the webhook handler) get processed.
 - **Recommended direction:** webhook handler should *reserve* and worker should *mark done*, OR the worker should not re-check the same key for webhook-sourced events.
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 4 - Webhook Idempotency Fix"). `handleWebhook` now enqueues an envelope with the reserved key; `processEvent` skips the re-check for reserved keys and marks `done` on success.
 
 ### 2. No authentication anywhere; `AdminToken` is dead config
 - **Files:** `internal/config/config.go:15`, `cmd/rtkron/main.go:112-116`
