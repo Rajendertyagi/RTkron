@@ -27,10 +27,10 @@ jobs:
         env:
           GOOS: windows
           GOARCH: amd64
-        run: go build -o codegmanager.exe ./cmd/rtkron
+        run: go build -o RTKron.exe ./cmd/rtkron
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: codegmanager-windows
-          path: codegmanager.exe
+          name: RTKron-windows
+          path: RTKron.exe

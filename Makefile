@@ -1,10 +1,10 @@
 .PHONY: build run migrate backup test
 
 build:
-	go build -o bin/codegmanager ./cmd/codegmanager
+	go build -o bin/RTKron.exe ./cmd/rtkron
 
 run:
-	./bin/codegmanager
+	./bin/RTKron.exe
 
 migrate:
 	# using goose or your chosen migration tool
