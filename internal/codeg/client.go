@@ -63,7 +63,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
         req.Header.Set("Authorization", "Bearer "+c.apiKey)
     }
 
-    var resp *retryablehttp.Response
+    var resp *http.Response
     operation := func() (interface{}, error) {
         r, err := c.http.Do(req)
         if err != nil {
