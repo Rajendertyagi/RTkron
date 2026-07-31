@@ -20,6 +20,7 @@ import (
     "syscall"
     "time"
 
+    "rtkron/internal/api"
     "rtkron/internal/codeg"
     "rtkron/internal/config"
     "rtkron/internal/store"
@@ -94,6 +95,9 @@ func main() {
         w.WriteHeader(http.StatusOK)
         _, _ = w.Write([]byte("ok"))
     })
+
+    // UI Handlers
+    api.RegisterUIHandlers(mux, dbStore)
 
     srv := &http.Server{
         Addr:    ":" + cfg.ServerPort,
