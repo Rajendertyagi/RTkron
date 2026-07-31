@@ -31,7 +31,7 @@ func LoadFromEnv() (*Config, error) {
         AdminToken:                 getEnv("ADMIN_TOKEN", ""),
         AuditEncryptionKey:         getEnv("AUDIT_ENCRYPTION_KEY", ""),
         DisableSignatureValidation: getEnvBool("DISABLE_SIGNATURE_VALIDATION", true),
-        ServerPort:                 getEnv("SERVER_PORT", "8080"),
+        ServerPort:                 getEnv("SERVER_PORT", "3090"),
         LogLevel:                   getEnv("LOG_LEVEL", "info"),
         WorkerCount:                getEnvInt("WORKER_COUNT", 4),
         EventQueueSize:             getEnvInt("EVENT_QUEUE_SIZE", 100),
