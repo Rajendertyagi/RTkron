@@ -87,7 +87,10 @@ func main() {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
     
-    wp := worker.NewWorkerPool(ctx, dbStore, apiClient, cfg)
+    wp, err := worker.NewWorkerPool(ctx, dbStore, apiClient, cfg)
+    if err != nil {
+        log.Fatalf("create worker pool: %v", err)
+    }
     wp.Start()
 
     // HTTP handlers
