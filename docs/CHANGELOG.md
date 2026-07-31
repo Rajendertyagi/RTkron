@@ -15,6 +15,17 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 5 - Atomic Idempotency Reserve] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/store/sqlite_store.go`
+- **Summary of Changes:**
+  - Fixed audit finding #6 (non-atomic idempotency check / race). `EnsureIdempotency` now uses a single atomic `INSERT ... ON CONFLICT(key) DO NOTHING` and inspects `RowsAffected()` (1 = newly reserved, 0 = duplicate) instead of the SELECT-then-INSERT pattern.
+  - Added exponential-backoff retry for transient SQLITE_BUSY / "database is locked" errors (max 6 attempts, 25ms initial), and a busy-retry loop in `MarkIdempotencyDone` (3 attempts). Added `isSqliteBusyErr` helper.
+  - Kept the exported `DB` field (main.go:123 passes `dbStore.DB` to `RegisterUIDataRoutes`); the idempotency logic follows the user's snippet using `s.DB`.
+
+---
+
 ## [Phase 5 - Webhook Body Limit + Server Timeouts] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

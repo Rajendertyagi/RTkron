@@ -4,6 +4,8 @@ import (
     "database/sql"
     "encoding/json"
     "errors"
+    "fmt"
+    "strings"
     "time"
 )
 
@@ -15,37 +17,88 @@ func NewSQLiteStore(db *sql.DB) *SQLiteStore {
     return &SQLiteStore{DB: db}
 }
 
-// EnsureIdempotency tries to insert the idempotency key.
-// Returns true if inserted (caller should proceed), false if already exists.
+// EnsureIdempotency attempts to atomically reserve an idempotency key.
+// Returns (true, nil) if the key was newly reserved by this caller.
+// Returns (false, nil) if the key already existed (duplicate).
+// Returns (false, err) on unrecoverable DB errors.
+//
+// This implementation uses a single INSERT ... ON CONFLICT DO NOTHING
+// and checks RowsAffected to determine whether the insert succeeded.
+// It also retries transient SQLITE_BUSY / "database is locked" errors with
+// exponential backoff to reduce race conditions under concurrency.
 func (s *SQLiteStore) EnsureIdempotency(key string) (bool, error) {
-    tx, err := s.DB.Begin()
-    if err != nil {
-        return false, err
-    }
-    defer tx.Rollback()
+    const (
+        maxAttempts    = 6
+        initialBackoff = 25 * time.Millisecond
+    )
 
-    var existing string
-    err = tx.QueryRow("SELECT key FROM idempotency WHERE key = ?", key).Scan(&existing)
-    if err != nil && err != sql.ErrNoRows {
-        return false, err
+    if key == "" {
+        return false, fmt.Errorf("empty idempotency key")
     }
-    if existing != "" {
-        _ = tx.Commit()
+
+    query := `
+    INSERT INTO idempotency(key, status, created_at)
+    VALUES (?, 'received', datetime('now'))
+    ON CONFLICT(key) DO NOTHING;
+    `
+
+    backoff := initialBackoff
+    for attempt := 1; attempt <= maxAttempts; attempt++ {
+        res, err := s.DB.Exec(query, key)
+        if err != nil {
+            // treat SQLITE_BUSY / "database is locked" as transient and retry
+            if isSqliteBusyErr(err) && attempt < maxAttempts {
+                time.Sleep(backoff)
+                backoff *= 2
+                continue
+            }
+            return false, fmt.Errorf("ensure idempotency exec: %w", err)
+        }
+
+        // If RowsAffected > 0, we inserted the row and reserved the key.
+        if ra, err := res.RowsAffected(); err == nil && ra > 0 {
+            return true, nil
+        }
+
+        // RowsAffected == 0 means the key already existed (ON CONFLICT DO NOTHING).
         return false, nil
     }
-    _, err = tx.Exec("INSERT INTO idempotency(key, created_at, status) VALUES (?, datetime('now'), ?)", key, "received")
-    if err != nil {
-        return false, err
-    }
-    if err := tx.Commit(); err != nil {
-        return false, err
-    }
-    return true, nil
+
+    return false, fmt.Errorf("ensure idempotency failed after %d attempts", maxAttempts)
 }
 
+// MarkIdempotencyDone marks the idempotency key as completed.
+// It's safe to call even if the key does not exist (no-op).
 func (s *SQLiteStore) MarkIdempotencyDone(key string) error {
-    _, err := s.DB.Exec("UPDATE idempotency SET status = ? WHERE key = ?", "done", key)
-    return err
+    if key == "" {
+        return fmt.Errorf("empty idempotency key")
+    }
+    _, err := s.DB.Exec("UPDATE idempotency SET status = 'done', updated_at = datetime('now') WHERE key = ?", key)
+    if err != nil {
+        // treat SQLITE_BUSY as transient; do a couple of retries
+        if isSqliteBusyErr(err) {
+            for i := 0; i < 3; i++ {
+                time.Sleep(time.Duration(50*(1<<i)) * time.Millisecond)
+                if _, err2 := s.DB.Exec("UPDATE idempotency SET status = 'done', updated_at = datetime('now') WHERE key = ?", key); err2 == nil {
+                    return nil
+                }
+            }
+        }
+        return fmt.Errorf("mark idempotency done: %w", err)
+    }
+    return nil
+}
+
+// isSqliteBusyErr returns true for common SQLite busy/locked errors.
+func isSqliteBusyErr(err error) bool {
+    if err == nil {
+        return false
+    }
+    msg := strings.ToLower(err.Error())
+    return strings.Contains(msg, "database is locked") ||
+        strings.Contains(msg, "database is busy") ||
+        strings.Contains(msg, "sqlite_busy") ||
+        strings.Contains(msg, "sqlite3: busy")
 }
 
 func (s *SQLiteStore) InsertAudit(eventID, action string, payload []byte) error {

@@ -51,6 +51,7 @@
 - **File:** `internal/store/sqlite_store.go:20-44`
 - SELECT-then-INSERT pattern: two concurrent requests with the same key can both pass the SELECT, then one INSERT fails with SQLITE_BUSY / UNIQUE constraint.
 - **Recommended direction:** use `INSERT OR IGNORE` and inspect `RowsAffected()` (1 = proceed, 0 = duplicate).
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 5 - Atomic Idempotency Reserve"). `EnsureIdempotency` now uses a single atomic `INSERT ... ON CONFLICT(key) DO NOTHING` and checks `RowsAffected()`; transient SQLITE_BUSY / "database is locked" errors are retried with exponential backoff (max 6 attempts, 25ms initial). `MarkIdempotencyDone` also retries busy errors (3 attempts).
 
 ### 7. Data race on `WorkflowInstance`
 - **Files:** `internal/worker/pool.go:283-343`
