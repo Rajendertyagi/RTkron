@@ -108,7 +108,8 @@ func main() {
 
     // gocron-ui scheduler dashboard at /scheduler
     if wp.Scheduler() != nil {
-        mux.Handle("/scheduler/", http.StripPrefix("/scheduler", gocronui.New(wp.Scheduler())))
+        srv := gocronui.NewServer(wp.Scheduler(), 0)
+        mux.Handle("/scheduler/", http.StripPrefix("/scheduler", srv.Router))
     }
 
     // JSON API endpoints for UI data
