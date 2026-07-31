@@ -1,11 +1,9 @@
 package codeg
 
 import (
-    "bytes"
     "context"
     "fmt"
     "io"
-    "net/http"
     "time"
 
     "github.com/hashicorp/go-retryablehttp"
