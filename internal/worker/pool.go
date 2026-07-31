@@ -295,7 +295,6 @@ func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connection
 		"trigger":     "turn_complete",
 	}
 
-	idempotencyKey := fmt.Sprintf("job:%s:instance:%s:node:%s", inst.WorkflowID, inst.ID, nextNode)
 	if w.Client == nil {
 		inst.CurrentNode = nextNode
 		inst.Status = "waiting_for_turn_complete"
