@@ -226,7 +226,7 @@
         </div>
         <a href="/" class="nav-link active">Dashboard</a>
         <a href="#" class="nav-link">Workflows</a>
-        <a href="#" class="nav-link">Schedules</a>
+        <a href="/scheduler/" class="nav-link" target="_blank">Schedules (Engine Room) <svg style="margin-left:auto;opacity:0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a>
         <a href="#" class="nav-link">Audit Logs</a>
         <a href="#" class="nav-link">Settings</a>
     </div>
@@ -294,14 +294,20 @@
       }, 2000);
 
       // Auto-refresh Dashboard Data
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+      }
+
       async function refreshDashboard() {
         try {
           // Fetch Stats
           const statsRes = await fetch('/api/stats');
           if (statsRes.ok) {
             const stats = await statsRes.json();
-            document.getElementById('stat-workflows').innerText = stats.workflows || 0;
-            document.getElementById('stat-events').innerText = stats.events || 0;
+            document.getElementById('stat-workflows').innerText = stats.active_instances || 0;
+            document.getElementById('stat-events').innerText = stats.successful_webhooks || 0;
           }
 
           // Fetch Activity
@@ -309,19 +315,20 @@
           if (activityRes.ok) {
             const activities = await activityRes.json();
             const tbody = document.getElementById('activity-tbody');
-            
+
             if (activities && activities.length > 0) {
               tbody.innerHTML = '';
               activities.forEach(act => {
                 const tr = document.createElement('tr');
-                let statusClass = 'pending';
-                if (act.status === 'success' || act.status === 'completed') statusClass = 'success';
-                
+                let statusClass = 'success';
+                if (act.kind === 'deadletter') statusClass = 'pending';
+
+                const created = act.created_at ? new Date(String(act.created_at).replace(' ', 'T')) : null;
                 tr.innerHTML = `
-                  <td>${act.id || '-'}</td>
-                  <td>${act.workflow || '-'}</td>
-                  <td><span class="badge ${statusClass}">${act.status || 'unknown'}</span></td>
-                  <td>${new Date(act.time).toLocaleTimeString() || '-'}</td>
+                  <td>${escapeHtml(act.event_id || act.id || '-')}</td>
+                  <td>${escapeHtml(act.action || '-')}</td>
+                  <td><span class="badge ${statusClass}">${escapeHtml(act.kind || 'unknown')}</span></td>
+                  <td>${created && !isNaN(created) ? created.toLocaleTimeString() : '-'}</td>
                 `;
                 tbody.appendChild(tr);
               });

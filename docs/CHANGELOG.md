@@ -15,6 +15,16 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 5 - Dashboard Schema Fix] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/api/templates/index.html`
+- **Summary of Changes:**
+  - Fixed audit finding #3 (dashboard JS didn't match the backend API schema). `refreshDashboard` now reads the real `StatsResponse` fields (`active_instances`, `successful_webhooks`) and renders `ActivityItem` fields (`kind`, `event_id`, `action`, `created_at`) instead of non-existent `workflows`/`events`/`workflow`/`status`/`time`.
+  - Added `escapeHtml` for all DB-derived values injected into the activity table (removes the stored-XSS vector from raw `innerHTML`).
+
+---
+
 ## [Phase 4 - Loopback Binding Safety] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

@@ -31,6 +31,7 @@
 - JS reads `stats.workflows` / `stats.events`, but the API returns `total_jobs_scheduled` / `active_instances` → stat cards always show 0.
 - JS reads `act.workflow` / `act.status` / `act.time`, but `ActivityItem` returns `kind` / `action` / `created_at` → activity table shows `-`, `unknown`, `Invalid Date`.
 - **Recommended direction:** align the JS field names to the actual JSON contract (`total_jobs_scheduled`, `kind`, `action`, `created_at`).
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 5 - Dashboard Schema Fix"). JS now reads `active_instances`/`successful_webhooks` and renders `kind`/`event_id`/`action`/`created_at`, with `escapeHtml` applied (also removes stored-XSS from the raw `innerHTML`).
 
 ### 4. Retry mechanism is dead
 - **Files:** `internal/worker/pool.go:249-257,327-336`
