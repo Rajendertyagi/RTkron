@@ -22,6 +22,7 @@ import (
     "syscall"
     "time"
 
+    gocronui "github.com/go-co-op/gocron-ui/server"
     "rtkron/internal/api"
     "rtkron/internal/codeg"
     "rtkron/internal/config"
@@ -101,6 +102,11 @@ func main() {
 
     // UI Handlers
     api.RegisterUIHandlers(mux, dbStore)
+
+    // gocron-ui scheduler dashboard at /scheduler
+    if wp.Scheduler() != nil {
+        mux.Handle("/scheduler/", http.StripPrefix("/scheduler", gocronui.New(wp.Scheduler())))
+    }
 
     // JSON API endpoints for UI data
     api.RegisterUIDataRoutes(mux, dbStore.DB)

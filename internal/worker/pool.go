@@ -8,7 +8,7 @@ import (
     "log"
     "time"
 
-    "github.com/go-co-op/gocron"
+    gocron "github.com/go-co-op/gocron/v2"
     "rtkron/internal/codeg"
     "rtkron/internal/config"
     "rtkron/internal/store"
@@ -36,7 +36,7 @@ func NewWorkerPool(ctx context.Context, s *store.SQLiteStore, c *codeg.Client, c
         ctx:     poolCtx,
         cancel:  cancel,
     }
-    wp.scheduler = gocron.NewScheduler(time.UTC)
+    wp.scheduler = gocron.NewScheduler()
     return wp
 }
 
