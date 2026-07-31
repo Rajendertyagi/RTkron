@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -20,7 +21,14 @@ func RegisterSchedulerRoutes(mux *http.ServeMux, db *store.SQLiteStore, wp *work
 		handleConfig(w, r)
 	})
 	mux.HandleFunc("/api/jobs", func(w http.ResponseWriter, r *http.Request) {
-		handleJobs(w, r, db, wp)
+		switch r.Method {
+		case http.MethodGet:
+			handleJobs(w, r, db, wp)
+		case http.MethodPost:
+			handleJobCreate(w, r, wp)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 	mux.HandleFunc("/api/jobs/", func(w http.ResponseWriter, r *http.Request) {
 		handleJobAction(w, r, db, wp)
@@ -120,6 +128,52 @@ func computeNextRuns(cronExpr string, n int) []string {
 		runs = append(runs, next.UTC().Format(time.RFC3339))
 	}
 	return runs
+}
+
+// jobCreateReq is the body of POST /api/jobs (Payload Builder form).
+// Either job_id or workflow_id is required; job_id wins when both are set.
+type jobCreateReq struct {
+	CronExpr   string          `json:"cron_expr"`
+	JobID      string          `json:"job_id"`
+	WorkflowID string          `json:"workflow_id"`
+	Payload    json.RawMessage `json:"payload"`
+}
+
+// POST /api/jobs - schedule a new cron job via WorkerPool.SchedulePromptCron.
+func handleJobCreate(w http.ResponseWriter, r *http.Request, wp *worker.WorkerPool) {
+	var body jobCreateReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.CronExpr) == "" {
+		http.Error(w, "cron_expr required", http.StatusBadRequest)
+		return
+	}
+	jobID := body.JobID
+	if jobID == "" {
+		jobID = body.WorkflowID
+	}
+	if strings.TrimSpace(jobID) == "" {
+		http.Error(w, "job_id or workflow_id required", http.StatusBadRequest)
+		return
+	}
+
+	var payload map[string]interface{}
+	if len(body.Payload) > 0 {
+		dec := json.NewDecoder(bytes.NewReader(body.Payload))
+		dec.UseNumber()
+		if err := dec.Decode(&payload); err != nil {
+			http.Error(w, "payload must be a JSON object", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := wp.SchedulePromptCron(body.CronExpr, jobID, payload); err != nil {
+		http.Error(w, "failed to schedule job: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"result": "created", "id": jobID})
 }
 
 // POST /api/jobs/{id}/run and DELETE /api/jobs/{id}

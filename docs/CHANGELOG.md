@@ -15,6 +15,21 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Codeg Tools (Payload Builder + Auto-Approve Security Center)] - 2026-08-01
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/api/static/index.html`
+  - `internal/api/static/app.js`
+  - `internal/api/static/style.css`
+  - `internal/api/scheduler_api.go`
+- **Summary of Changes:**
+  - Embedded two Codeg-specific tools into the unified dashboard:
+    - **Payload Builder**: form with `cron_expr`, `job_id`/`workflow_id`, and a JSON payload textarea. On submit, app.js parses the payload and `POST /api/jobs`; the new backend handler `handleJobCreate` validates the body and calls `WorkerPool.SchedulePromptCron(cronExpr, jobID, payload)` (which persists the job for rehydration). `job_id` wins over `workflow_id` when both are provided.
+    - **Auto-Approve Security Center**: form that takes a `connection_id` and `POST /api/policy` (action `add`) to save an auto-approve rule into `auto_approve_rules`. The allowed-connections list loads via `GET /api/policy` and each row can be removed (`POST /api/policy` action `delete`). Uses event delegation + `escapeHtml` (no inline `onclick` with data attributes) to avoid attribute-injection when a connection_id contains quotes.
+  - `POST /api/jobs` added to `scheduler_api.go` (was GET-only); handler decodes the payload with `UseNumber` for int64 precision and returns 400 for invalid JSON / missing fields.
+
+---
+
 ## [Phase 4 - Self-Hosted Single-App UI (gocron-ui fork)] - 2026-08-01
 - **Agent:** OpenCode
 - **Files Modified:**

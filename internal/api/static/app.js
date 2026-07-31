@@ -12,7 +12,18 @@ function getApiBase() {
 document.addEventListener('DOMContentLoaded', () => {
     loadConfig();
     loadJobs();
+    loadPolicy();
     setInterval(loadJobs, 3000);
+
+    // Codeg Tools
+    document.getElementById('payload-builder-form').addEventListener('submit', submitPayloadBuilder);
+    document.getElementById('policy-form').addEventListener('submit', submitPolicy);
+    document.getElementById('policy-items').addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-conn]');
+        if (btn) {
+            removePolicy(btn.getAttribute('data-conn'));
+        }
+    });
 });
 
 // load server configuration
@@ -95,6 +106,36 @@ async function runJob(id) {
     }
 }
 
+// Create a scheduled job via the Payload Builder form.
+async function createScheduledJob(cronExpr, jobId, payload) {
+    const body = { cron_expr: cronExpr, job_id: jobId };
+    if (payload) {
+        body.payload = payload;
+    }
+    const response = await fetch(`${getApiBase()}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to schedule job');
+    }
+}
+
+// Add/remove an auto-approve policy rule for a connection_id.
+async function updatePolicy(connectionId, action) {
+    const response = await fetch(`${getApiBase()}/policy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connectionId, action }),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to update policy');
+    }
+}
+
 // job actions
 async function handleRunJob(id) {
     try {
@@ -116,6 +157,104 @@ async function handleDeleteJob(id, name) {
         await loadJobs();
     } catch (err) {
         showError(err.message);
+    }
+}
+
+// Payload Builder submit: POST /api/jobs to call SchedulePromptCron().
+async function submitPayloadBuilder(e) {
+    e.preventDefault();
+    const status = document.getElementById('pb-status');
+    status.textContent = 'Scheduling...';
+
+    const cronExpr = document.getElementById('pb-cron-expr').value.trim();
+    const jobId = document.getElementById('pb-job-id').value.trim();
+    const rawPayload = document.getElementById('pb-payload').value.trim();
+
+    let payload = null;
+    if (rawPayload) {
+        try {
+            payload = JSON.parse(rawPayload);
+        } catch (err) {
+            status.className = 'form-status error';
+            status.textContent = 'Payload is not valid JSON';
+            return;
+        }
+    }
+
+    try {
+        await createScheduledJob(cronExpr, jobId, payload);
+        status.className = 'form-status success';
+        status.textContent = 'Job scheduled';
+        await loadJobs();
+    } catch (err) {
+        status.className = 'form-status error';
+        status.textContent = err.message;
+    }
+}
+
+// Auto-Approve Security Center submit: POST /api/policy (action add).
+async function submitPolicy(e) {
+    e.preventDefault();
+    const status = document.getElementById('policy-status');
+    status.textContent = 'Saving...';
+
+    const connectionId = document.getElementById('policy-connection-id').value.trim();
+    if (!connectionId) {
+        status.className = 'form-status error';
+        status.textContent = 'Connection ID is required';
+        return;
+    }
+
+    try {
+        await updatePolicy(connectionId, 'add');
+        status.className = 'form-status success';
+        status.textContent = 'Connection allowed';
+        document.getElementById('policy-connection-id').value = '';
+        await loadPolicy();
+    } catch (err) {
+        status.className = 'form-status error';
+        status.textContent = err.message;
+    }
+}
+
+// Load and render the auto-approve policy rule list.
+async function loadPolicy() {
+    const list = document.getElementById('policy-items');
+    const empty = document.getElementById('policy-empty');
+    try {
+        const response = await fetch(`${getApiBase()}/policy`, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const rules = await response.json();
+        if (rules && rules.length > 0) {
+            empty.style.display = 'none';
+            list.innerHTML = rules.map(rule => `
+                <li class="policy-item">
+                    <code>${escapeHtml(rule.connection_id)}</code>
+                    <button class="btn btn-danger btn-sm" data-conn="${escapeHtml(rule.connection_id)}">Remove</button>
+                </li>
+            `).join('');
+        } else {
+            empty.style.display = 'block';
+            list.innerHTML = '';
+        }
+    } catch (err) {
+        empty.style.display = 'block';
+        empty.textContent = 'Failed to load policy rules';
+        list.innerHTML = '';
+    }
+}
+
+// Remove a policy rule (action delete).
+async function removePolicy(connectionId) {
+    try {
+        await updatePolicy(connectionId, 'delete');
+        await loadPolicy();
+    } catch (err) {
+        const status = document.getElementById('policy-status');
+        status.className = 'form-status error';
+        status.textContent = err.message;
     }
 }
 

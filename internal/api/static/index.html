@@ -37,6 +37,47 @@
                 </div>
             </div>
 
+            <!-- Codeg Tools -->
+            <section class="tools-grid">
+
+                <!-- Payload Builder -->
+                <div class="tool-card">
+                    <h2 class="tool-title">🧱 Payload Builder</h2>
+                    <p class="tool-desc">Schedule a Codeg prompt on a cron expression. The job is persisted and rehydrated on restart.</p>
+                    <form id="payload-builder-form">
+                        <label class="tool-label" for="pb-cron-expr">Cron Expression</label>
+                        <input class="tool-input" type="text" id="pb-cron-expr" placeholder="*/5 * * * *" required>
+
+                        <label class="tool-label" for="pb-job-id">Job ID / Workflow ID</label>
+                        <input class="tool-input" type="text" id="pb-job-id" placeholder="daily-report" required>
+
+                        <label class="tool-label" for="pb-payload">JSON Payload</label>
+                        <textarea class="tool-textarea" id="pb-payload" rows="6" placeholder='{"message":"hello from RTkron"}'>{"message":"hello from RTkron"}</textarea>
+
+                        <button type="submit" class="btn btn-primary">Schedule</button>
+                        <span id="pb-status" class="form-status"></span>
+                    </form>
+                </div>
+
+                <!-- Auto-Approve Security Center -->
+                <div class="tool-card">
+                    <h2 class="tool-title">🛡️ Auto-Approve Security Center</h2>
+                    <p class="tool-desc">Whitelist a <code>connection_id</code> so its permission requests are auto-approved via policy rules.</p>
+                    <form id="policy-form">
+                        <label class="tool-label" for="policy-connection-id">Connection ID</label>
+                        <input class="tool-input" type="text" id="policy-connection-id" placeholder="conn-abc123" required>
+                        <button type="submit" class="btn btn-success">Allow Connection</button>
+                        <span id="policy-status" class="form-status"></span>
+                    </form>
+                    <div id="policy-list" class="policy-list">
+                        <h3 class="policy-title">Allowed Connections</h3>
+                        <ul id="policy-items" class="policy-items"></ul>
+                        <p id="policy-empty" class="policy-empty">No rules yet.</p>
+                    </div>
+                </div>
+
+            </section>
+
             <div id="jobs-container">
                 <!-- jobs will be rendered here -->
             </div>
