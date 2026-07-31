@@ -81,3 +81,37 @@ func (s *SQLiteStore) GetWorkflow(id string) (*Workflow, error) {
     w.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", created)
     return &w, nil
 }
+
+type WorkflowInstance struct {
+    ID          string
+    WorkflowID  string
+    CurrentNode string
+    Status      string
+    Retries     int
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
+}
+
+func (s *SQLiteStore) GetInstanceBySession(sessionID string) (*WorkflowInstance, error) {
+    row := s.DB.QueryRow("SELECT id, workflow_id, current_node, status, retries FROM instances WHERE id = ?", sessionID)
+    var i WorkflowInstance
+    if err := row.Scan(&i.ID, &i.WorkflowID, &i.CurrentNode, &i.Status, &i.Retries); err != nil {
+        return nil, err
+    }
+    return &i, nil
+}
+
+func (s *SQLiteStore) GetInstanceByConnection(connectionID string) (*WorkflowInstance, error) {
+    row := s.DB.QueryRow("SELECT id, workflow_id, current_node, status, retries FROM instances WHERE id = ?", connectionID)
+    var i WorkflowInstance
+    if err := row.Scan(&i.ID, &i.WorkflowID, &i.CurrentNode, &i.Status, &i.Retries); err != nil {
+        return nil, err
+    }
+    return &i, nil
+}
+
+func (s *SQLiteStore) UpdateInstance(inst *WorkflowInstance) error {
+    _, err := s.DB.Exec("UPDATE instances SET current_node = ?, status = ?, retries = ?, updated_at = datetime('now') WHERE id = ?",
+        inst.CurrentNode, inst.Status, inst.Retries, inst.ID)
+    return err
+}
