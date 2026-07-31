@@ -26,6 +26,7 @@ import (
     "rtkron/internal/codeg"
     "rtkron/internal/config"
     "rtkron/internal/store"
+    "rtkron/internal/tray"
     "rtkron/internal/worker"
 
     _ "modernc.org/sqlite"
@@ -138,6 +139,26 @@ func main() {
     }
 
     log.Printf("listening on :%s", cfg.ServerPort)
+
+    shutdownCh := make(chan struct{})
+    go func() {
+        <-shutdownCh
+        log.Println("shutting down HTTP server")
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+        wp.Stop()
+        if err := srv.Shutdown(ctx); err != nil {
+            log.Printf("HTTP server Shutdown: %v", err)
+        }
+        cancel()
+        close(idleConnsClosed)
+    }()
+
+    tray.StartTray(ctx, cfg.ServerPort, func() {
+        log.Println("tray requested quit: shutting down")
+        close(shutdownCh)
+    })
+
     if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
         log.Fatalf("server error: %v", err)
     }
