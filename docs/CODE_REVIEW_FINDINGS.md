@@ -63,6 +63,7 @@
 - **Files:** `internal/worker/pool.go:193-199`
 - Cron `scheduled_prompt` events are dispatched to `handleTurnComplete`, which requires an instance (session/connection) → always audits "turn_complete_no_instance". Cron prompts never actually fire a prompt.
 - **Recommended direction:** dedicated handler for `scheduled_prompt` that builds a fresh workflow instance from the cron payload.
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 5 - Scheduled Prompt Dispatch"). `processEvent` routes `scheduled_prompt` to a dedicated `handleScheduledPrompt`: reserves `event:<eventID>` idempotency, synthesizes an event ID from `scheduled_id` when missing, builds a prompt payload (`scheduled_id`, `event_id`, `payload`, `trigger`), and dispatches via `AcpPrompt` with external key `scheduled:<id>:event:<eid>`. On failure it dead-letters and leaves the idempotency row open for manual retry; with no client it audits `scheduled_prompt_no_client`.
 
 ---
 

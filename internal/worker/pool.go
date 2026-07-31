@@ -235,8 +235,7 @@ func (w *WorkerPool) processEvent(ctx context.Context, evt interface{}) {
 	case "turn_complete":
 		procErr = w.handleTurnComplete(ctx, eventID, connectionID, sessionID, turnID, evMap)
 	case "scheduled_prompt":
-		// scheduled prompts come from scheduler; reuse turn_complete handler
-		procErr = w.handleTurnComplete(ctx, eventID, connectionID, sessionID, turnID, evMap)
+		procErr = w.handleScheduledPrompt(ctx, evMap)
 	default:
 		_ = w.Store.InsertAudit(eventID, "unhandled_event", []byte(stringOrJSON(evMap)))
 		procErr = nil
@@ -303,6 +302,91 @@ func (w *WorkerPool) handlePermissionRequest(ctx context.Context, ev map[string]
 		return nil
 	}
 
+	return nil
+}
+
+func (w *WorkerPool) handleScheduledPrompt(ctx context.Context, ev map[string]interface{}) error {
+	// Extract canonical fields
+	eventID, _ := ev["event_id"].(string)
+	scheduledID, _ := ev["scheduled_id"].(string)
+	payloadIface := ev["payload"]
+
+	// Ensure we have an event id; if not, synthesize one deterministically from scheduled_id + timestamp
+	if eventID == "" {
+		if scheduledID != "" {
+			eventID = fmt.Sprintf("scheduled-%s-%d", scheduledID, time.Now().UnixNano())
+		} else {
+			eventID = fmt.Sprintf("scheduled-unknown-%d", time.Now().UnixNano())
+		}
+	}
+
+	// Use the same event-level idempotency key pattern as webhooks/other events.
+	idKey := "event:" + eventID
+
+	// Reserve idempotency for this scheduled run.
+	ok, err := w.Store.EnsureIdempotency(idKey)
+	if err != nil {
+		_ = w.Store.InsertDeadLetter(stringOrJSON(ev), 0, fmt.Sprintf("ensure idempotency error: %v", err))
+		return fmt.Errorf("ensure idempotency failed for scheduled prompt %s: %w", eventID, err)
+	}
+	if !ok {
+		// duplicate scheduled run (already reserved/processed)
+		log.Printf("handleScheduledPrompt: duplicate scheduled event %s; skipping", idKey)
+		return nil
+	}
+
+	// Convert payload to map[string]interface{} if needed
+	var payload map[string]interface{}
+	switch p := payloadIface.(type) {
+	case map[string]interface{}:
+		payload = p
+	case string:
+		_ = json.Unmarshal([]byte(p), &payload)
+	default:
+		// best-effort marshal/unmarshal
+		bs, _ := json.Marshal(p)
+		_ = json.Unmarshal(bs, &payload)
+	}
+
+	// Build prompt payload for the external client
+	promptPayload := map[string]interface{}{
+		"scheduled_id": scheduledID,
+		"event_id":     eventID,
+		"payload":      payload,
+		"trigger":      "scheduled_prompt",
+	}
+
+	// If no client configured, record an audit and mark idempotency done
+	if w.Client == nil {
+		_ = w.Store.InsertAudit(eventID, "scheduled_prompt_no_client", []byte(stringOrJSON(promptPayload)))
+		_ = w.Store.MarkIdempotencyDone(idKey)
+		return nil
+	}
+
+	// Optionally create an external idempotency key for the remote request
+	externalIdem := fmt.Sprintf("scheduled:%s:event:%s", scheduledID, eventID)
+
+	// Dispatch to Codeg (or external service)
+	bs, err := json.Marshal(promptPayload)
+	if err != nil {
+		_ = w.Store.MarkIdempotencyDone(idKey)
+		return fmt.Errorf("marshal scheduled prompt payload: %w", err)
+	}
+	resp, err := w.Client.AcpPrompt(ctx, bs, externalIdem)
+	if err != nil {
+		// On failure, write to deadletter and leave idempotency row for inspection
+		_ = w.Store.InsertDeadLetter(stringOrJSON(ev), 0, fmt.Sprintf("acp_prompt error: %v", err))
+		// Do not mark idempotency done so operators can retry manually if desired
+		log.Printf("handleScheduledPrompt: dispatch failed for %s: %v", eventID, err)
+		return fmt.Errorf("dispatch scheduled prompt failed: %w", err)
+	}
+
+	// Success: audit, mark idempotency done
+	_ = w.Store.InsertAudit(eventID, "scheduled_prompt_dispatched", resp)
+	if err := w.Store.MarkIdempotencyDone(idKey); err != nil {
+		log.Printf("handleScheduledPrompt: failed to mark idempotency done for %s: %v", idKey, err)
+		// still return success because prompt was dispatched
+	}
 	return nil
 }
 

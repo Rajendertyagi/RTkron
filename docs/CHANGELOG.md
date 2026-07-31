@@ -15,6 +15,17 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 5 - Scheduled Prompt Dispatch] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/worker/pool.go`
+- **Summary of Changes:**
+  - Fixed audit finding #8 (`scheduled_prompt` events dead-ended). `processEvent` now routes `scheduled_prompt` to a dedicated `handleScheduledPrompt` instead of `handleTurnComplete`.
+  - `handleScheduledPrompt` enforces event-level idempotency (`event:<eventID>`, synthesized from `scheduled_id` when missing), builds a prompt payload, and dispatches via `AcpPrompt` with external key `scheduled:<scheduled_id>:event:<eventID>`. On dispatch failure it dead-letters and leaves the idempotency row open for manual retry; with no client it audits `scheduled_prompt_no_client`.
+  - Cron-sourced events already carry `event_id` + `scheduled_id: jobID` (see `SchedulePromptCron`).
+
+---
+
 ## [Phase 5 - Per-Instance Locking] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**
