@@ -38,14 +38,13 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 - **Files Modified:**
   - `go.mod`
   - `internal/worker/pool.go`
-  - `cmd/rtkron/main.go`
   - `internal/codeg/client.go`
 - **Summary of Changes:**
-  - Added `github.com/go-co-op/gocron` and `github.com/go-co-op/gocron-ui` dependencies for cron-based job scheduling.
+  - Added `github.com/go-co-op/gocron` dependency for cron-based job scheduling.
   - Integrated gocron scheduler into `WorkerPool` with `SchedulePromptCron`, `RemoveScheduledJob`, `StartAsync`, and graceful shutdown.
-  - Mounted gocron-ui at `/scheduler` and added `api.RegisterUIDataRoutes` call in main.go.
   - Simplified `codeg.Client` by removing circuit breaker (gobreaker), using retryablehttp directly.
   - Removed unused `github.com/sony/gobreaker` from go.mod.
+  - NOTE: `gocron-ui` was removed — it requires `gocron/v2` which is incompatible with the `gocron/v1` used in the worker pool.
 
 ---
 
