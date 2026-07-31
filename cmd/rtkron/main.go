@@ -19,13 +19,11 @@ import (
     "os/signal"
     "path/filepath"
     "runtime"
-    "strconv"
     "strings"
     "sync"
     "syscall"
     "time"
 
-    gocronui "github.com/go-co-op/gocron-ui/server"
     "rtkron/internal/api"
     "rtkron/internal/codeg"
     "rtkron/internal/config"
@@ -112,20 +110,14 @@ func main() {
     })
 
     // UI Handlers
-    api.RegisterUIHandlers(mux, dbStore)
+    api.RegisterUIHandlers(mux)
 
     adminWrap := chooseAdminWrapper(cfg.AdminToken)
 
-    // gocron-ui scheduler dashboard at /scheduler (admin-protected)
-    if wp.Scheduler() != nil {
-        port, _ := strconv.Atoi(cfg.ServerPort)
-        srv := gocronui.NewServer(wp.Scheduler(), port, gocronui.WithTitle("RTkron Scheduler"))
-        mux.Handle("/scheduler/", adminWrap(http.StripPrefix("/scheduler", srv.Router)))
-    }
-
-    // JSON API endpoints for UI data (admin-protected)
+    // JSON API endpoints for UI data and scheduler management (admin-protected)
     apiMux := http.NewServeMux()
     api.RegisterUIDataRoutes(apiMux, dbStore)
+    api.RegisterSchedulerRoutes(apiMux, dbStore, wp)
     mux.Handle("/api/", adminWrap(apiMux))
 
     srv := &http.Server{

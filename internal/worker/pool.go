@@ -139,6 +139,46 @@ func (w *WorkerPool) RemoveScheduledJob(jobID string) {
 	_ = w.Store.DeleteJob(jobID)
 }
 
+// RunJobNow enqueues an immediate run of a persisted scheduled job by
+// building the same scheduled_prompt event the cron trigger would emit.
+// gocron v2's Job interface has no RunNow(), so we drive it through the queue.
+func (w *WorkerPool) RunJobNow(jobID string) error {
+	if jobID == "" {
+		return fmt.Errorf("empty job id")
+	}
+	jobs, err := w.Store.GetEnabledJobs()
+	if err != nil {
+		return fmt.Errorf("load jobs: %w", err)
+	}
+	var target *store.Job
+	for i := range jobs {
+		if jobs[i].ID == jobID {
+			target = &jobs[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+
+	var pl map[string]interface{}
+	if len(target.Payload) > 0 {
+		if err := json.Unmarshal(target.Payload, &pl); err != nil {
+			return fmt.Errorf("parse job payload: %w", err)
+		}
+	}
+	ev := map[string]interface{}{
+		"event_id":     fmt.Sprintf("cron-%s-%d", jobID, time.Now().Unix()),
+		"type":         "scheduled_prompt",
+		"scheduled_id": jobID,
+		"payload":      pl,
+	}
+	if !w.Enqueue(ev) {
+		return fmt.Errorf("queue full")
+	}
+	return nil
+}
+
 // RehydrateScheduler reloads persisted enabled jobs from the store and
 // re-registers them with the gocron scheduler (e.g. after a restart).
 func (w *WorkerPool) RehydrateScheduler() error {

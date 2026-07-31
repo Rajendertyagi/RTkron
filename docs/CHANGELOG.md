@@ -15,6 +15,27 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Self-Hosted Single-App UI (gocron-ui fork)] - 2026-08-01
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `go.mod`
+  - `cmd/rtkron/main.go`
+  - `internal/api/ui.go`
+  - `internal/api/ui_data.go`
+  - `internal/api/scheduler_api.go` (new)
+  - `internal/worker/pool.go`
+  - `internal/api/static/index.html`, `internal/api/static/app.js`, `internal/api/static/style.css` (new)
+  - `internal/api/templates/index.html` (deleted)
+- **Summary of Changes:**
+  - Replaced the gocron-ui dependency and its `/scheduler/` mount with a self-hosted single-app dashboard at `/`. Dropped `github.com/go-co-op/gocron-ui` from `go.mod`.
+  - `internal/api/ui.go` rewritten: `go:embed static/*` + `http.FileServer` via `fs.Sub`; `RegisterUIHandlers(mux)` takes no store param. Old `internal/api/templates/` deleted.
+  - Forked gocron-ui's 3 vanilla static files into `internal/api/static/` (no build step): rebranded RTKron title, same DOM IDs; `app.js` polls `./api/jobs` every 3s instead of WebSocket and calls `./api/config`.
+  - New `internal/api/scheduler_api.go`: `GET /api/config` (title), `GET /api/jobs` (list from store, enriched with live nextRun/lastRun from gocron and `nextRuns` computed via `robfig/cron/v3`), `POST /api/jobs/{id}/run`, `DELETE /api/jobs/{id}`.
+  - Since gocron v2.0.0's `Job` interface has no `RunNow()`, added `WorkerPool.RunJobNow(jobID)` which loads the persisted job and enqueues a `scheduled_prompt` event (same path the cron trigger uses).
+  - `main.go`: dropped `gocronui`/`strconv` imports and the `/scheduler/` block; `RegisterUIHandlers(mux)` serves the app at `/`; scheduler routes registered on the admin-protected `apiMux` (so `/api/*` stays token/loopback-protected). Admin caveat unchanged: with `ADMIN_TOKEN` set, browser fetches to `/api/*` still 401.
+
+---
+
 ## [Phase 6 - Scheduler Persistence & Rehydration] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

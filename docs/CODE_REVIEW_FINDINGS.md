@@ -75,7 +75,7 @@
 - **12.** `internal/codeg/client.go:60,86,114` — error messages embed the full upstream response body; body content can leak into logs / dead-letter rows.
 - **13.** `internal/api/ui_data.go:49-59` — all `_ = db.QueryRow(...)` errors are silently swallowed; `DatabasePathProvided` is hardcoded `false`.
 - **14.** `internal/config/config.go:78-95` — `getEnvInt` / `getEnvDuration` silently swallow parse errors and return defaults (no warning log).
-- **15.** `internal/api/templates/index.html:7` — external Google Fonts dependency breaks the offline / single-binary guarantee.
+- **15.** ~~`internal/api/templates/index.html:7` — external Google Fonts dependency breaks the offline / single-binary guarantee.~~ **RESOLVED** — old template deleted; the Phase 4 forked UI (`internal/api/static/index.html`) has no external assets.
 - **16.** `internal/codeg/client.go` — `retryablehttp` retries `POST /acp/respond_permission` (non-idempotent) on transient errors; a connection reset after the server applied the decision could cause a double-approval.
 
 ---
@@ -85,18 +85,18 @@
 - **17.** `cmd/rtkron/main.go:57` — `flag.Parse()` called with zero flags registered.
 - **18.** `cmd/rtkron/main.go:45,200` — `WebhookEvent.RawBody` is set but never read.
 - **19.** `internal/tray/tray_windows.go:48-51` — redundant `Check()` followed by conditional `Uncheck()`; `setStartup` (`:100`) writes the exe path unquoted to the Run key.
-- **20.** `internal/store/migrations.go:32-43` — `jobs` table is orphaned; gocron keeps jobs in memory and never touches this table.
-- **21.** `internal/api/templates/index.html:280-294` — "live reload" polling can never trigger because the poll interval (2000ms) is always under the reload threshold (3000ms).
+- **20.** `internal/store/migrations.go:32-43` — ~~`jobs` table is orphaned; gocron keeps jobs in memory and never touches this table.~~ **RESOLVED** — Phase 6 (Scheduler Persistence & Rehydration) now persists job definitions (`SaveJob`/`GetEnabledJobs`) and re-registers them on startup; `payload` column added via idempotent `ensureJobsPayloadColumn`.
+- **21.** ~~`internal/api/templates/index.html:280-294` — "live reload" polling can never trigger because the poll interval (2000ms) is always under the reload threshold (3000ms).~~ **RESOLVED** — old template deleted; the forked `static/app.js` polls `./api/jobs` every 3s.
 - **22.** `cmd/rtkron/main.go:232-238` — returns 200 OK *before* confirming the event was enqueued (queue-full events are dead-lettered after the client already got 200).
 - **23.** `internal/config/config.go:47-49` — empty `if` block containing only a comment.
-- **24.** `internal/api/ui.go:31-32` — dead commented-out code.
+- **24.** ~~`internal/api/ui.go:31-32` — dead commented-out code.~~ **RESOLVED** — `ui.go` rewritten (Phase 4) to embed `static/*` and serve via `http.FileServer`.
 
 ---
 
 ## ✅ Verified Correct (not issues)
 
-- **gocron/v2 v2.0.0 usage** — all calls match the official API: `NewScheduler()` → `(Scheduler, error)`, `CronJob(expr, false)`, `NewTask(fn)`, `WithTags(...)`, `WithSingletonMode(LimitModeReschedule)`, `Start()`, `StopJobs()`, `RemoveByTags(...)`.
-- **gocron-ui v0.3.0 usage** — `NewServer(scheduler, port, WithTitle(...))` returning `*Server` with `.Router http.Handler` matches the official source (port arg is intentionally ignored).
+- **gocron/v2 v2.0.0 usage** — all calls match the official API: `NewScheduler()` → `(Scheduler, error)`, `CronJob(expr, false)`, `NewTask(fn)`, `WithTags(...)`, `WithSingletonMode(LimitModeReschedule)`, `Start()`, `StopJobs()`, `RemoveByTags(...)`. The `Job` interface exposes only `ID/LastRun/Name/NextRun/Tags` (no `RunNow`), which is why run-now goes through `WorkerPool.RunJobNow` → queue.
+- **gocron-ui v0.3.0 usage** — **no longer used.** Phase 4 replaced the `gocronui.NewServer(...)` mount at `/scheduler/` with a self-hosted fork of gocron-ui's 3 static files served at `/` (see CHANGELOG "Phase 4 - Self-Hosted Single-App UI"). The `gocron-ui` dependency was removed from `go.mod`.
 - **Single shutdown path** — the duplicate signal/tray shutdown goroutines were already consolidated behind `sync.Once` (fix dfde07a).
 
 ## Unofficial / unverifiable protocol notes
