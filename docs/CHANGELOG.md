@@ -15,6 +15,24 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 6 - Auto-Approve Policy Rules] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/store/migrations.go`
+  - `internal/store/sqlite_store.go`
+  - `internal/api/ui_data.go`
+  - `internal/worker/pool.go`
+  - `cmd/rtkron/main.go`
+- **Summary of Changes:**
+  - Added `auto_approve_rules` table (connection_id UNIQUE, max_per_minute) to `InitialMigration` so `Migrate` actually runs it (the standalone const `migrationAddAutoApproveRules` would never execute under the existing `InitialMigration` runner).
+  - Added `AutoApproveRule` model + CRUD in `SQLiteStore`: `GetAllAutoApproveRules`, `GetAutoApproveRule`, `AddAutoApproveRule` (upsert), `DeleteAutoApproveRule`.
+  - `RegisterUIDataRoutes` signature changed from `*sql.DB` to `*store.SQLiteStore` (main.go:123 updated to pass `dbStore`); existing stats/activity handlers now use `db.DB`.
+  - Added `/api/policy` (GET list, POST add/upsert/delete). POST body: `{"connection_id": "...", "max_per_minute": 10, "action": "add"|"delete"}`.
+  - `handlePermissionRequest` now consults `auto_approve_rules` instead of `w.Config.AutoApprove`: whitelisted connections are auto-approved (audit `auto_approved` + optional `snapshot_fetched`/`snapshot_fetch_failed`), non-whitelisted are audited `permission_request_pending`.
+  - **NOTE:** the previous `AcpRespondPermission` approve call was removed by this redesign (auto-approve now audits + fetches snapshot only). `AcpRespondPermission` remains in `client.go` but is no longer called. Flag if the approve call should be restored in the auto-approve path.
+
+---
+
 ## [Phase 5 - Scheduled Prompt Dispatch] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

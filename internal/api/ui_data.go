@@ -5,15 +5,29 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"rtkron/internal/store"
 )
 
 // RegisterUIDataRoutes registers the UI JSON endpoints on the provided mux.
-func RegisterUIDataRoutes(mux *http.ServeMux, db *sql.DB) {
+func RegisterUIDataRoutes(mux *http.ServeMux, db *store.SQLiteStore) {
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		handleStats(w, r, db)
 	})
 	mux.HandleFunc("/api/activity", func(w http.ResponseWriter, r *http.Request) {
 		handleActivity(w, r, db)
+	})
+
+	// policy endpoints
+	mux.HandleFunc("/api/policy", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handlePolicyGet(w, r, db)
+		case http.MethodPost:
+			handlePolicyPost(w, r, db)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 }
 
@@ -41,17 +55,17 @@ type ActivityItem struct {
 	CreatedAt string `json:"created_at"`
 }
 
-func handleStats(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+func handleStats(w http.ResponseWriter, r *http.Request, db *store.SQLiteStore) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var resp StatsResponse
 
-	_ = db.QueryRow("SELECT COUNT(1) FROM jobs").Scan(&resp.TotalJobsScheduled)
-	_ = db.QueryRow("SELECT COUNT(1) FROM idempotency WHERE status = 'done'").Scan(&resp.SuccessfulWebhooks)
-	_ = db.QueryRow("SELECT COUNT(1) FROM deadletter").Scan(&resp.FailedWebhooks)
-	_ = db.QueryRow("SELECT COUNT(1) FROM audit").Scan(&resp.TotalAudits)
-	_ = db.QueryRow("SELECT COUNT(1) FROM deadletter").Scan(&resp.DeadLetterCount)
-	_ = db.QueryRow("SELECT COUNT(1) FROM instances WHERE status IN ('running','waiting','waiting_for_turn_complete')").Scan(&resp.ActiveInstances)
+	_ = db.DB.QueryRow("SELECT COUNT(1) FROM jobs").Scan(&resp.TotalJobsScheduled)
+	_ = db.DB.QueryRow("SELECT COUNT(1) FROM idempotency WHERE status = 'done'").Scan(&resp.SuccessfulWebhooks)
+	_ = db.DB.QueryRow("SELECT COUNT(1) FROM deadletter").Scan(&resp.FailedWebhooks)
+	_ = db.DB.QueryRow("SELECT COUNT(1) FROM audit").Scan(&resp.TotalAudits)
+	_ = db.DB.QueryRow("SELECT COUNT(1) FROM deadletter").Scan(&resp.DeadLetterCount)
+	_ = db.DB.QueryRow("SELECT COUNT(1) FROM instances WHERE status IN ('running','waiting','waiting_for_turn_complete')").Scan(&resp.ActiveInstances)
 
 	resp.ServerTimeUTC = time.Now().UTC().Format(time.RFC3339)
 	resp.DatabasePathProvided = false
@@ -59,7 +73,7 @@ func handleStats(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func handleActivity(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+func handleActivity(w http.ResponseWriter, r *http.Request, db *store.SQLiteStore) {
 	w.Header().Set("Content-Type", "application/json")
 
 	query := `
@@ -72,7 +86,7 @@ func handleActivity(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	 LIMIT 10;
 	`
 
-	rows, err := db.Query(query)
+	rows, err := db.DB.Query(query)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
 		return
@@ -122,4 +136,63 @@ func handleActivity(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 
 	_ = json.NewEncoder(w).Encode(items)
+}
+
+// GET /api/policy
+func handlePolicyGet(w http.ResponseWriter, r *http.Request, db *store.SQLiteStore) {
+	w.Header().Set("Content-Type", "application/json")
+	rules, err := db.GetAllAutoApproveRules()
+	if err != nil {
+		http.Error(w, "failed to load policy", http.StatusInternalServerError)
+		return
+	}
+	// return only connection_ids for the UI (but include max_per_minute for future use)
+	type ruleOut struct {
+		ConnectionID string `json:"connection_id"`
+		MaxPerMinute int    `json:"max_per_minute"`
+		CreatedAt    string `json:"created_at"`
+	}
+	out := make([]ruleOut, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, ruleOut{ConnectionID: r.ConnectionID, MaxPerMinute: r.MaxPerMinute, CreatedAt: r.CreatedAt})
+	}
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// POST /api/policy
+// Accepts JSON body: { "connection_id": "...", "max_per_minute": 10, "action": "add"|"delete" }
+func handlePolicyPost(w http.ResponseWriter, r *http.Request, db *store.SQLiteStore) {
+	w.Header().Set("Content-Type", "application/json")
+	var body struct {
+		ConnectionID string `json:"connection_id"`
+		MaxPerMinute int    `json:"max_per_minute"`
+		Action       string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if body.ConnectionID == "" {
+		http.Error(w, "connection_id required", http.StatusBadRequest)
+		return
+	}
+
+	switch body.Action {
+	case "add", "upsert", "":
+		if err := db.AddAutoApproveRule(body.ConnectionID, body.MaxPerMinute); err != nil {
+			http.Error(w, "failed to add rule", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"result":"ok","action":"added"}`))
+	case "delete", "remove":
+		if err := db.DeleteAutoApproveRule(body.ConnectionID); err != nil {
+			http.Error(w, "failed to delete rule", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"result":"ok","action":"deleted"}`))
+	default:
+		http.Error(w, "invalid action", http.StatusBadRequest)
+	}
 }

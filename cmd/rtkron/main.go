@@ -120,7 +120,7 @@ func main() {
 
     // JSON API endpoints for UI data (admin-protected)
     apiMux := http.NewServeMux()
-    api.RegisterUIDataRoutes(apiMux, dbStore.DB)
+    api.RegisterUIDataRoutes(apiMux, dbStore)
     mux.Handle("/api/", adminWrap(apiMux))
 
     srv := &http.Server{

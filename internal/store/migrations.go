@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS deadletter (
   last_error TEXT,
   created_at DATETIME DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS auto_approve_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connection_id TEXT NOT NULL UNIQUE,
+  max_per_minute INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT (datetime('now'))
+);
 `
 
 func splitSQLStatements(sqlText string) []string {

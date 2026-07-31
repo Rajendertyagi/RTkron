@@ -168,3 +168,63 @@ func (s *SQLiteStore) UpdateInstance(inst *WorkflowInstance) error {
         inst.CurrentNode, inst.Status, inst.Retries, inst.ID)
     return err
 }
+
+// AutoApproveRule represents a row in auto_approve_rules.
+type AutoApproveRule struct {
+    ID           int64
+    ConnectionID string
+    MaxPerMinute int
+    CreatedAt    string
+}
+
+// GetAllAutoApproveRules returns all rules.
+func (s *SQLiteStore) GetAllAutoApproveRules() ([]AutoApproveRule, error) {
+    rows, err := s.DB.Query("SELECT id, connection_id, max_per_minute, created_at FROM auto_approve_rules ORDER BY created_at DESC")
+    if err != nil {
+        return nil, fmt.Errorf("query auto_approve_rules: %w", err)
+    }
+    defer rows.Close()
+
+    var out []AutoApproveRule
+    for rows.Next() {
+        var r AutoApproveRule
+        if err := rows.Scan(&r.ID, &r.ConnectionID, &r.MaxPerMinute, &r.CreatedAt); err != nil {
+            continue
+        }
+        out = append(out, r)
+    }
+    return out, nil
+}
+
+// GetAutoApproveRule returns a rule for a given connection_id or sql.ErrNoRows.
+func (s *SQLiteStore) GetAutoApproveRule(connectionID string) (*AutoApproveRule, error) {
+    var r AutoApproveRule
+    err := s.DB.QueryRow("SELECT id, connection_id, max_per_minute, created_at FROM auto_approve_rules WHERE connection_id = ?", connectionID).
+        Scan(&r.ID, &r.ConnectionID, &r.MaxPerMinute, &r.CreatedAt)
+    if err != nil {
+        return nil, err
+    }
+    return &r, nil
+}
+
+// AddAutoApproveRule inserts or updates a rule (upsert).
+func (s *SQLiteStore) AddAutoApproveRule(connectionID string, maxPerMinute int) error {
+    _, err := s.DB.Exec(`
+    INSERT INTO auto_approve_rules(connection_id, max_per_minute, created_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(connection_id) DO UPDATE SET max_per_minute = excluded.max_per_minute;
+    `, connectionID, maxPerMinute)
+    if err != nil {
+        return fmt.Errorf("add auto_approve_rule: %w", err)
+    }
+    return nil
+}
+
+// DeleteAutoApproveRule removes a rule by connection_id.
+func (s *SQLiteStore) DeleteAutoApproveRule(connectionID string) error {
+    _, err := s.DB.Exec("DELETE FROM auto_approve_rules WHERE connection_id = ?", connectionID)
+    if err != nil {
+        return fmt.Errorf("delete auto_approve_rule: %w", err)
+    }
+    return nil
+}

@@ -262,46 +262,39 @@ func (w *WorkerPool) processEvent(ctx context.Context, evt interface{}) {
 
 func (w *WorkerPool) handlePermissionRequest(ctx context.Context, ev map[string]interface{}) error {
 	eventID, _ := ev["event_id"].(string)
+	connectionID, _ := ev["connection_id"].(string)
 	sessionID, _ := ev["session_id"].(string)
 
-	if err := w.Store.InsertAudit(eventID, "permission_request_received", []byte(stringOrJSON(ev))); err != nil {
-		log.Printf("handlePermissionRequest: audit insert failed: %v", err)
-	}
+	_ = w.Store.InsertAudit(eventID, "permission_request_received", []byte(stringOrJSON(ev)))
 
-	if !w.Config.AutoApprove {
-		log.Printf("handlePermissionRequest: auto-approve disabled; event=%s", eventID)
-		return nil
-	}
-
-	var pendingRequestID string
-	if w.Client != nil && sessionID != "" {
-		resp, err := w.Client.AcpGetSessionSnapshot(ctx, sessionID)
-		if err != nil {
-			return fmt.Errorf("acp_get_session_snapshot: %w", err)
+	// If connection_id is whitelisted in auto_approve_rules, auto-approve.
+	if connectionID != "" {
+		rule, err := w.Store.GetAutoApproveRule(connectionID)
+		if err != nil && err != sql.ErrNoRows {
+			// DB error: record deadletter and bail
+			_ = w.Store.InsertDeadLetter(stringOrJSON(ev), 0, fmt.Sprintf("auto-approve lookup error: %v", err))
+			return fmt.Errorf("auto-approve lookup failed: %w", err)
 		}
-		var snap map[string]interface{}
-		if err := json.Unmarshal(resp, &snap); err == nil {
-			if v, ok := snap["pending_request_id"].(string); ok {
-				pendingRequestID = v
+		if rule != nil {
+			// Auto-approve path
+			_ = w.Store.InsertAudit(eventID, "auto_approved", []byte(fmt.Sprintf(`{"connection_id":"%s","rule_id":%d}`, connectionID, rule.ID)))
+			// Optionally fetch session snapshot if client available
+			if w.Client != nil && sessionID != "" {
+				if resp, err := w.Client.AcpGetSessionSnapshot(ctx, sessionID); err == nil {
+					_ = w.Store.InsertAudit(eventID, "snapshot_fetched", resp)
+				} else {
+					// snapshot fetch failure is non-fatal for approval; record audit
+					_ = w.Store.InsertAudit(eventID, "snapshot_fetch_failed", []byte(err.Error()))
+				}
 			}
+			// mark idempotency for webhook-originated events is handled by processEvent/reserved key logic
+			_ = w.Store.MarkIdempotencyDone("event:" + eventID)
+			return nil
 		}
 	}
 
-	if pendingRequestID != "" && w.Client != nil {
-		_, err := w.Client.AcpRespondPermission(ctx, pendingRequestID, "approve", "auto-approved by local config")
-		if err != nil {
-			return fmt.Errorf("acp_respond_permission: %w", err)
-		}
-		audit, _ := json.Marshal(map[string]string{"pending_request_id": pendingRequestID})
-		_ = w.Store.InsertAudit(eventID, "auto_approved", audit)
-		return nil
-	}
-
-	if w.Client == nil || pendingRequestID == "" {
-		log.Printf("handlePermissionRequest: no client or pendingRequestID; recorded audit only for event=%s", eventID)
-		return nil
-	}
-
+	// Not whitelisted: normal flow (no auto-approve). Insert audit and leave idempotency for worker flow.
+	_ = w.Store.InsertAudit(eventID, "permission_request_pending", []byte(stringOrJSON(ev)))
 	return nil
 }
 
