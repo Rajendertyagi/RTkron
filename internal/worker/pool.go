@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	gocron "github.com/go-co-op/gocron/v2"
@@ -24,18 +25,23 @@ type WorkerPool struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	scheduler gocron.Scheduler
+
+	// per-instance locking to serialize processing for the same workflow instance
+	locksMu       sync.Mutex
+	instanceLocks map[string]*sync.Mutex
 }
 
 func NewWorkerPool(ctx context.Context, s *store.SQLiteStore, c *codeg.Client, cfg *config.Config) (*WorkerPool, error) {
 	poolCtx, cancel := context.WithCancel(ctx)
 	wp := &WorkerPool{
-		Store:   s,
-		Client:  c,
-		Config:  cfg,
-		Events:  make(chan interface{}, cfg.EventQueueSize),
-		workers: cfg.WorkerCount,
-		ctx:     poolCtx,
-		cancel:  cancel,
+		Store:         s,
+		Client:        c,
+		Config:        cfg,
+		Events:        make(chan interface{}, cfg.EventQueueSize),
+		workers:       cfg.WorkerCount,
+		ctx:           poolCtx,
+		cancel:        cancel,
+		instanceLocks: make(map[string]*sync.Mutex),
 	}
 	scheduler, err := gocron.NewScheduler()
 	if err != nil {
@@ -329,6 +335,18 @@ func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connection
 		attempt = inst.Retries + 1
 	}
 
+	// Acquire per-instance lock if we have an instance ID to serialize mutations.
+	var instLock *sync.Mutex
+	if inst != nil && inst.ID != "" {
+		instLock = w.getInstanceLock(inst.ID)
+		instLock.Lock()
+		defer instLock.Unlock()
+	}
+
+	// From here on, it's safe to mutate inst fields and write them back without races
+	// because the per-instance lock is held (if inst was found). For events without an instance,
+	// we proceed without the lock.
+
 	// Compose an attempt-specific idempotency key so retries are distinct
 	turnAttemptKey := fmt.Sprintf("%s:attempt:%d", turnKeyBase, attempt)
 
@@ -381,6 +399,8 @@ func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connection
 		audit, _ := json.Marshal(map[string]string{"instance_id": inst.ID})
 		_ = w.Store.InsertAudit(eventID, "workflow_completed", audit)
 		_ = w.Store.MarkIdempotencyDone(turnAttemptKey)
+		// remove lock entry to avoid map growth for completed instances
+		go w.removeInstanceLock(inst.ID)
 		return nil
 	}
 
@@ -435,6 +455,29 @@ func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connection
 	_ = w.Store.InsertAudit(eventID, "prompt_dispatched", resp)
 	_ = w.Store.MarkIdempotencyDone(turnAttemptKey)
 	return nil
+}
+
+func (w *WorkerPool) getInstanceLock(instanceID string) *sync.Mutex {
+	if instanceID == "" {
+		return &sync.Mutex{}
+	}
+	w.locksMu.Lock()
+	defer w.locksMu.Unlock()
+	m, ok := w.instanceLocks[instanceID]
+	if !ok {
+		m = &sync.Mutex{}
+		w.instanceLocks[instanceID] = m
+	}
+	return m
+}
+
+func (w *WorkerPool) removeInstanceLock(instanceID string) {
+	if instanceID == "" {
+		return
+	}
+	w.locksMu.Lock()
+	defer w.locksMu.Unlock()
+	delete(w.instanceLocks, instanceID)
 }
 
 func (w *WorkerPool) scheduleRetry(eventID, connectionID, sessionID, turnID, turnKeyBase string, retries int, ev map[string]interface{}) {

@@ -15,6 +15,17 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 5 - Per-Instance Locking] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/worker/pool.go`
+- **Summary of Changes:**
+  - Fixed audit finding #7 (data race on `WorkflowInstance`). `WorkerPool` now maintains a `locksMu`-guarded `instanceLocks map[string]*sync.Mutex`.
+  - `handleTurnComplete` acquires the per-instance lock (via `getInstanceLock`) after loading the instance and holds it (via `defer`) while mutating and persisting `inst` fields; `removeInstanceLock` drops the entry when a workflow completes to prevent unbounded map growth.
+  - Events without an instance proceed without a lock (unchanged behavior).
+
+---
+
 ## [Phase 5 - Atomic Idempotency Reserve] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

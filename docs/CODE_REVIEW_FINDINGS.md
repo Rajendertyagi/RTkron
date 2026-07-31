@@ -57,6 +57,7 @@
 - **Files:** `internal/worker/pool.go:283-343`
 - Multiple worker goroutines process events for the same instance concurrently; `inst` fields (`Retries`, `CurrentNode`, `Status`) are mutated and written back to SQLite with no mutex.
 - **Recommended direction:** per-instance locking (map of `sync.Mutex` keyed by instance ID) or a single-flight pattern.
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 5 - Per-Instance Locking"). `WorkerPool` now holds a `locksMu`-guarded `instanceLocks map[string]*sync.Mutex`; `handleTurnComplete` acquires the per-instance lock (via `getInstanceLock`) after loading the instance and releases it on return (`defer`). Lock entries are removed (`removeInstanceLock`) when a workflow completes to avoid map growth.
 
 ### 8. `scheduled_prompt` events dead-end
 - **Files:** `internal/worker/pool.go:193-199`
