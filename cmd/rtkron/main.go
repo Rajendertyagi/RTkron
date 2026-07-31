@@ -28,8 +28,6 @@ import (
     _ "modernc.org/sqlite"
 )
 
-const migrationFile = "migrations/001_initial.sql"
-
 type WebhookEvent struct {
     EventID      string          `json:"event_id"`
     Type         string          `json:"type"`
@@ -46,45 +44,6 @@ func ensureDirForFile(path string) error {
         return nil
     }
     return os.MkdirAll(dir, 0o755)
-}
-
-func runMigrations(db *sql.DB) error {
-    f, err := os.Open(migrationFile)
-    if err != nil {
-        return fmt.Errorf("open migration file: %w", err)
-    }
-    defer f.Close()
-    content, err := io.ReadAll(f)
-    if err != nil {
-        return fmt.Errorf("read migration file: %w", err)
-    }
-    stmts := splitSQLStatements(string(content))
-    tx, err := db.Begin()
-    if err != nil {
-        return err
-    }
-    for _, s := range stmts {
-        s = strings.TrimSpace(s)
-        if s == "" {
-            continue
-        }
-        if _, err := tx.Exec(s); err != nil {
-            _ = tx.Rollback()
-            return fmt.Errorf("exec migration stmt: %w; stmt: %s", err, s)
-        }
-    }
-    return tx.Commit()
-}
-
-func splitSQLStatements(sqlText string) []string {
-    parts := strings.Split(sqlText, ";")
-    out := make([]string, 0, len(parts))
-    for _, p := range parts {
-        if strings.TrimSpace(p) != "" {
-            out = append(out, p)
-        }
-    }
-    return out
 }
 
 func main() {
@@ -111,7 +70,7 @@ func main() {
         log.Printf("warning: enable WAL failed: %v", err)
     }
 
-    if err := runMigrations(db); err != nil {
+    if err := store.Migrate(db); err != nil {
         log.Fatalf("migrations failed: %v", err)
     }
     log.Println("migrations applied")
