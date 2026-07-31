@@ -14,8 +14,10 @@ import (
     "log"
     "net/http"
     "os"
+    "os/exec"
     "os/signal"
     "path/filepath"
+    "runtime"
     "strings"
     "syscall"
     "time"
@@ -119,6 +121,21 @@ func main() {
         cancel()
         close(idleConnsClosed)
     }()
+
+    if cfg.AutoOpenBrowser {
+        go func() {
+            time.Sleep(300 * time.Millisecond)
+            url := "http://localhost:" + cfg.ServerPort + "/"
+            switch runtime.GOOS {
+            case "windows":
+                _ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+            case "darwin":
+                _ = exec.Command("open", url).Start()
+            default:
+                _ = exec.Command("xdg-open", url).Start()
+            }
+        }()
+    }
 
     log.Printf("listening on :%s", cfg.ServerPort)
     if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -275,5 +275,22 @@
             </table>
         </div>
     </div>
+    <script>
+      let last = null;
+      setInterval(async () => {
+        try {
+          const res = await fetch('/healthz', {cache: 'no-store'});
+          if (res.ok) {
+            const now = Date.now();
+            if (last && now - last > 3000) {
+              window.location.reload();
+            }
+            last = now;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 2000);
+    </script>
 </body>
 </html>
