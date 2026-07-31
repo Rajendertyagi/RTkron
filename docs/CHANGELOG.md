@@ -24,8 +24,8 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 - **Summary of Changes:**
   - Upgraded `gocron` from v1 to `gocron/v2` for cron-based job scheduling.
   - Added `github.com/go-co-op/gocron-ui` dependency for the scheduler web dashboard.
-  - Refactored `WorkerPool` to use gocron v2 API (`NewScheduler()`, `Cron().Tag().Do()`, `SingletonMode()`).
-  - Mounted gocron-ui at `/scheduler/` in `main.go` using `gocronui.New(wp.Scheduler())`.
+  - Refactored `WorkerPool` to use gocron v2 API (`NewScheduler()`, `NewJob(CronJob(...), NewTask(...), WithTags(...), WithSingletonMode(...))`, `Start()`, `StopJobs()`, `RemoveByTags()`).
+  - Mounted gocron-ui at `/scheduler/` in `main.go` using `gocronui.NewServer(wp.Scheduler(), 0)` and `srv.Router`.
   - Removed gocron v1 and gocron-ui v0.3.0 (incompatible with v1) from go.mod.
 
 ---
