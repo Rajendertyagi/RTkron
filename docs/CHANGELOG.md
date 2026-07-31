@@ -15,6 +15,17 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Loopback Binding Safety] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `cmd/rtkron/main.go`
+- **Summary of Changes:**
+  - When `ADMIN_TOKEN` is empty, the HTTP server now binds to `127.0.0.1:<port>` instead of all interfaces, preventing remote access to the UI and admin APIs.
+  - **NOTE:** loopback binding also blocks remote senders from reaching `/webhook/codeg`; set `ADMIN_TOKEN` (which restores all-interface binding) if the webhook must accept remote traffic.
+  - Design from user (Rahul). User's proposed `gocronui.New()` and `store.OpenDB()` were NOT used — `gocronui.NewServer()` + `srv.Router` (the actual v0.3.0 API) and the inline DB open/migrate remain.
+
+---
+
 ## [Phase 4 - Admin Auth Middleware] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

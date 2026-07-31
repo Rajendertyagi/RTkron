@@ -128,6 +128,13 @@ func main() {
         Handler: loggingMiddleware(mux),
     }
 
+    // If ADMIN_TOKEN is empty, bind the whole server to loopback only for safety.
+    // NOTE: this also blocks remote senders from reaching /webhook/codeg.
+    if strings.TrimSpace(cfg.AdminToken) == "" {
+        log.Println("WARNING: ADMIN_TOKEN not set; binding to loopback only for safety")
+        srv.Addr = "127.0.0.1:" + cfg.ServerPort
+    }
+
     idleConnsClosed := make(chan struct{})
     shutdownCh := make(chan struct{})
     var shutdownOnce sync.Once
