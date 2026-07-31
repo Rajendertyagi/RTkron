@@ -15,6 +15,23 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 6 - Scheduler Persistence & Rehydration] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/store/migrations.go`
+  - `internal/store/sqlite_store.go`
+  - `internal/worker/pool.go`
+  - `cmd/rtkron/main.go`
+- **Summary of Changes:**
+  - Ticket 6 (Scheduler Persistence & Rehydration) implemented.
+  - Added `jobs.payload` column to `InitialMigration`; `Migrate` now runs idempotent `ensureJobsPayloadColumn` (PRAGMA table_info check + `ALTER TABLE ADD COLUMN`) so existing DBs get the column.
+  - Added `Job` model + store methods: `SaveJob` (upsert; creates a placeholder workflow row if missing to satisfy the FK), `GetEnabledJobs`, `UpdateJobLastRun`, `DeleteJob`.
+  - `SchedulePromptCron` now persists the job definition after registering it; the cron task records `last_run` via `UpdateJobLastRun`. `RemoveScheduledJob` also deletes the row from the DB.
+  - Added `WorkerPool.RehydrateScheduler`, which loads enabled jobs from the store and re-registers them with gocron. Wired into `main.go` right after `wp.Start()` (failures are non-fatal warnings).
+  - Note: `SchedulePromptCron`'s `workflow_id` is set to the `jobID` placeholder; `SaveJob` guarantees a matching placeholder workflow row so the FK constraint holds.
+
+---
+
 ## [Phase 6 - Restore AcpRespondPermission in Auto-Approve] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

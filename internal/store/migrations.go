@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   workflow_id TEXT NOT NULL,
   cron_expr TEXT,
   enabled INTEGER DEFAULT 1,
+  payload TEXT,
   last_run DATETIME,
   next_run DATETIME,
   owner TEXT,
@@ -101,5 +102,44 @@ func Migrate(db *sql.DB) error {
             return fmt.Errorf("exec migration stmt: %w; stmt: %s", err, s)
         }
     }
-    return tx.Commit()
+    if err := tx.Commit(); err != nil {
+        return err
+    }
+    return ensureJobsPayloadColumn(db)
+}
+
+// ensureJobsPayloadColumn adds the jobs.payload column to databases created
+// before the scheduler persistence feature. It inspects PRAGMA table_info and
+// only runs ALTER TABLE when the column is missing, so it is idempotent.
+func ensureJobsPayloadColumn(db *sql.DB) error {
+    rows, err := db.Query("PRAGMA table_info(jobs)")
+    if err != nil {
+        return fmt.Errorf("inspect jobs table: %w", err)
+    }
+    defer rows.Close()
+
+    has := false
+    for rows.Next() {
+        var cid int
+        var name, ctype string
+        var notnull int
+        var dflt sql.NullString
+        var pk int
+        if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+            return fmt.Errorf("scan jobs table_info: %w", err)
+        }
+        if name == "payload" {
+            has = true
+            break
+        }
+    }
+    if has {
+        return nil
+    }
+
+    _, err = db.Exec("ALTER TABLE jobs ADD COLUMN payload TEXT")
+    if err != nil {
+        return fmt.Errorf("add jobs.payload column: %w", err)
+    }
+    return nil
 }

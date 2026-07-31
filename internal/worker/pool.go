@@ -103,6 +103,7 @@ func (w *WorkerPool) SchedulePromptCron(cronExpr string, jobID string, payload m
 				"scheduled_id": jobID,
 				"payload":      pl,
 			}
+			_ = w.Store.UpdateJobLastRun(jobID, time.Now())
 			if !w.Enqueue(ev) {
 				_ = w.Store.InsertDeadLetter(stringOrJSON(ev), 0, "queue_full_on_schedule")
 			}
@@ -113,14 +114,56 @@ func (w *WorkerPool) SchedulePromptCron(cronExpr string, jobID string, payload m
 	if err != nil {
 		return err
 	}
+
+	// Persist the job definition so it can be rehydrated on next startup.
+	jobBS, err := json.Marshal(pl)
+	if err != nil {
+		return fmt.Errorf("marshal persisted payload: %w", err)
+	}
+	if err := w.Store.SaveJob(&store.Job{
+		ID:         jobID,
+		WorkflowID: jobID,
+		CronExpr:   cronExpr,
+		Enabled:    true,
+		Payload:    jobBS,
+	}); err != nil {
+		return fmt.Errorf("persist job: %w", err)
+	}
 	return nil
 }
 
 func (w *WorkerPool) RemoveScheduledJob(jobID string) {
-	if w.scheduler == nil {
-		return
+	if w.scheduler != nil {
+		w.scheduler.RemoveByTags(jobID)
 	}
-	w.scheduler.RemoveByTags(jobID)
+	_ = w.Store.DeleteJob(jobID)
+}
+
+// RehydrateScheduler reloads persisted enabled jobs from the store and
+// re-registers them with the gocron scheduler (e.g. after a restart).
+func (w *WorkerPool) RehydrateScheduler() error {
+	if w.scheduler == nil {
+		return fmt.Errorf("scheduler not initialized")
+	}
+	jobs, err := w.Store.GetEnabledJobs()
+	if err != nil {
+		return fmt.Errorf("load enabled jobs: %w", err)
+	}
+	for _, j := range jobs {
+		var payload map[string]interface{}
+		if len(j.Payload) > 0 {
+			if err := json.Unmarshal(j.Payload, &payload); err != nil {
+				log.Printf("rehydrate: skipping job %s: bad payload: %v", j.ID, err)
+				continue
+			}
+		}
+		if err := w.SchedulePromptCron(j.CronExpr, j.ID, payload); err != nil {
+			log.Printf("rehydrate: failed to schedule job %s: %v", j.ID, err)
+			continue
+		}
+		log.Printf("rehydrated job %s (%s)", j.ID, j.CronExpr)
+	}
+	return nil
 }
 
 func (w *WorkerPool) Scheduler() gocron.Scheduler {

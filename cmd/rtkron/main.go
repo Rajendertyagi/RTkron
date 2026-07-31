@@ -96,6 +96,11 @@ func main() {
     }
     wp.Start()
 
+    // Rehydrate persisted scheduled jobs from the DB so they survive restarts.
+    if err := wp.RehydrateScheduler(); err != nil {
+        log.Printf("warning: scheduler rehydration failed: %v", err)
+    }
+
     // HTTP handlers
     mux := http.NewServeMux()
     mux.HandleFunc("/webhook/codeg", func(w http.ResponseWriter, r *http.Request) {

@@ -228,3 +228,86 @@ func (s *SQLiteStore) DeleteAutoApproveRule(connectionID string) error {
     }
     return nil
 }
+
+// Job represents a persisted scheduled job definition for rehydration.
+type Job struct {
+    ID         string
+    WorkflowID string
+    CronExpr   string
+    Enabled    bool
+    Payload    []byte
+    LastRun    sql.NullString
+    NextRun    sql.NullString
+    Owner      string
+}
+
+// SaveJob upserts a job definition. WorkflowID is required (FK to workflows);
+// a placeholder workflow row is created if it does not exist so cron-only jobs
+// (which dispatch scheduled_prompt events) persist cleanly.
+func (s *SQLiteStore) SaveJob(j *Job) error {
+    if j.WorkflowID == "" {
+        j.WorkflowID = j.ID
+    }
+    _, err := s.DB.Exec("INSERT OR IGNORE INTO workflows(id, name, definition) VALUES (?, ?, '{}')", j.WorkflowID, j.WorkflowID)
+    if err != nil {
+        return fmt.Errorf("ensure placeholder workflow: %w", err)
+    }
+
+    enabled := 0
+    if j.Enabled {
+        enabled = 1
+    }
+    _, err = s.DB.Exec(`
+    INSERT INTO jobs(id, workflow_id, cron_expr, enabled, payload, last_run, next_run, owner)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      workflow_id = excluded.workflow_id,
+      cron_expr = excluded.cron_expr,
+      enabled = excluded.enabled,
+      payload = excluded.payload,
+      owner = excluded.owner;
+    `, j.ID, j.WorkflowID, j.CronExpr, enabled, j.Payload, j.LastRun, j.NextRun, j.Owner)
+    if err != nil {
+        return fmt.Errorf("save job: %w", err)
+    }
+    return nil
+}
+
+// GetEnabledJobs returns all enabled job definitions for scheduler rehydration.
+func (s *SQLiteStore) GetEnabledJobs() ([]Job, error) {
+    rows, err := s.DB.Query("SELECT id, workflow_id, cron_expr, enabled, payload, last_run, next_run, owner FROM jobs WHERE enabled = 1 ORDER BY id")
+    if err != nil {
+        return nil, fmt.Errorf("query jobs: %w", err)
+    }
+    defer rows.Close()
+
+    var out []Job
+    for rows.Next() {
+        var j Job
+        var enabled int
+        if err := rows.Scan(&j.ID, &j.WorkflowID, &j.CronExpr, &enabled, &j.Payload, &j.LastRun, &j.NextRun, &j.Owner); err != nil {
+            continue
+        }
+        j.Enabled = enabled == 1
+        out = append(out, j)
+    }
+    return out, nil
+}
+
+// UpdateJobLastRun records the last execution time for a job.
+func (s *SQLiteStore) UpdateJobLastRun(jobID string, ts time.Time) error {
+    _, err := s.DB.Exec("UPDATE jobs SET last_run = ? WHERE id = ?", ts.UTC().Format("2006-01-02 15:04:05"), jobID)
+    if err != nil {
+        return fmt.Errorf("update job last_run: %w", err)
+    }
+    return nil
+}
+
+// DeleteJob removes a job definition by id.
+func (s *SQLiteStore) DeleteJob(jobID string) error {
+    _, err := s.DB.Exec("DELETE FROM jobs WHERE id = ?", jobID)
+    if err != nil {
+        return fmt.Errorf("delete job: %w", err)
+    }
+    return nil
+}
