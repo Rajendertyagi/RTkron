@@ -15,6 +15,17 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 5 - Webhook Body Limit + Server Timeouts] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `cmd/rtkron/main.go`
+- **Summary of Changes:**
+  - Fixed audit finding #5 (DoS surface). `handleWebhook` wraps `r.Body` with `http.MaxBytesReader(w, r.Body, 1<<20)` (1 MiB) and responds 413 Payload Too Large when the limit is exceeded; other read errors return 400.
+  - `http.Server` now configures `ReadTimeout: 10s`, `ReadHeaderTimeout: 5s`, `WriteTimeout: 15s`, `IdleTimeout: 120s`.
+  - Loopback binding logic (when `ADMIN_TOKEN` is empty) and the loopback override of `srv.Addr` remain unchanged.
+
+---
+
 ## [Phase 5 - Turn Retry Attempt Keys + AcpPrompt] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

@@ -45,6 +45,7 @@
 - `io.ReadAll(r.Body)` reads the entire request body with no size limit.
 - `http.Server` has no `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, or `ReadHeaderTimeout`.
 - **Recommended direction:** wrap with `http.MaxBytesReader` (e.g. 1 MB) and set sensible server timeouts.
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 5 - Webhook Body Limit + Server Timeouts"). `handleWebhook` wraps `r.Body` with `http.MaxBytesReader` (1 MiB) and returns 413 on oversized bodies; `http.Server` now sets `ReadTimeout` (10s), `ReadHeaderTimeout` (5s), `WriteTimeout` (15s), `IdleTimeout` (120s).
 
 ### 6. Idempotency check is not atomic (race)
 - **File:** `internal/store/sqlite_store.go:20-44`

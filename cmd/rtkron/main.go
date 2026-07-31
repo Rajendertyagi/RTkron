@@ -124,8 +124,12 @@ func main() {
     mux.Handle("/api/", adminWrap(apiMux))
 
     srv := &http.Server{
-        Addr:    ":" + cfg.ServerPort,
-        Handler: loggingMiddleware(mux),
+        Addr:              ":" + cfg.ServerPort,
+        Handler:           loggingMiddleware(mux),
+        ReadTimeout:       10 * time.Second,
+        ReadHeaderTimeout: 5 * time.Second,
+        WriteTimeout:      15 * time.Second,
+        IdleTimeout:       120 * time.Second,
     }
 
     // If ADMIN_TOKEN is empty, bind the whole server to loopback only for safety.
@@ -249,8 +253,19 @@ func handleWebhook(w http.ResponseWriter, r *http.Request, s *store.SQLiteStore,
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
         return
     }
+    const maxBodySize = 1 << 20 // 1 MiB
+
+    // wrap the request body to enforce a hard limit
+    r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+    defer r.Body.Close()
+
     body, err := io.ReadAll(r.Body)
     if err != nil {
+        // MaxBytesReader returns an error when the body is too large
+        if errors.Is(err, http.ErrBodyReadAfterClose) || strings.Contains(err.Error(), "http: request body too large") {
+            http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+            return
+        }
         http.Error(w, "bad request", http.StatusBadRequest)
         return
     }
