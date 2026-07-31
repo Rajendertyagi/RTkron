@@ -1,4 +1,4 @@
-name: Build Codeg Manager
+name: RTKron Build Manager
 
 on:
   push:
