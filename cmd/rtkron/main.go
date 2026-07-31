@@ -261,8 +261,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request, s *store.SQLiteStore,
 
     body, err := io.ReadAll(r.Body)
     if err != nil {
-        // MaxBytesReader returns an error when the body is too large
-        if errors.Is(err, http.ErrBodyReadAfterClose) || strings.Contains(err.Error(), "http: request body too large") {
+        if strings.Contains(err.Error(), "http: request body too large") {
             http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
             return
         }
