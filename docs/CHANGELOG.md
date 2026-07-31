@@ -15,6 +15,17 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 6 - Restore AcpRespondPermission in Auto-Approve] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/worker/pool.go`
+- **Summary of Changes:**
+  - Restored the `AcpRespondPermission(..., "approve", ...)` call inside the whitelisted auto-approve path. The flow now: look up `auto_approve_rules` → fetch session snapshot to extract `pending_request_id` → call `acp_respond_permission` with decision `approve` → audit `auto_approved`. This actually unblocks the agent as intended.
+  - If no `pending_request_id` is found in the snapshot, it audits `auto_approved` with a note rather than failing.
+  - Reverted the Phase 6 regression that audited `auto_approved` without calling the approve endpoint.
+
+---
+
 ## [Phase 6 - Auto-Approve Policy Rules] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

@@ -276,16 +276,35 @@ func (w *WorkerPool) handlePermissionRequest(ctx context.Context, ev map[string]
 			return fmt.Errorf("auto-approve lookup failed: %w", err)
 		}
 		if rule != nil {
-			// Auto-approve path
-			_ = w.Store.InsertAudit(eventID, "auto_approved", []byte(fmt.Sprintf(`{"connection_id":"%s","rule_id":%d}`, connectionID, rule.ID)))
-			// Optionally fetch session snapshot if client available
+			// Auto-approve path: extract pending_request_id from the session snapshot,
+			// then actually approve it so the agent is unblocked.
+			var pendingRequestID string
 			if w.Client != nil && sessionID != "" {
-				if resp, err := w.Client.AcpGetSessionSnapshot(ctx, sessionID); err == nil {
-					_ = w.Store.InsertAudit(eventID, "snapshot_fetched", resp)
-				} else {
+				resp, err := w.Client.AcpGetSessionSnapshot(ctx, sessionID)
+				if err != nil {
 					// snapshot fetch failure is non-fatal for approval; record audit
 					_ = w.Store.InsertAudit(eventID, "snapshot_fetch_failed", []byte(err.Error()))
+				} else {
+					_ = w.Store.InsertAudit(eventID, "snapshot_fetched", resp)
+					var snap map[string]interface{}
+					if err := json.Unmarshal(resp, &snap); err == nil {
+						if v, ok := snap["pending_request_id"].(string); ok {
+							pendingRequestID = v
+						}
+					}
 				}
+			}
+
+			if pendingRequestID != "" && w.Client != nil {
+				_, err := w.Client.AcpRespondPermission(ctx, pendingRequestID, "approve", "auto-approved by policy rule")
+				if err != nil {
+					_ = w.Store.InsertDeadLetter(stringOrJSON(ev), 0, fmt.Sprintf("acp_respond_permission error: %v", err))
+					return fmt.Errorf("acp_respond_permission: %w", err)
+				}
+				audit, _ := json.Marshal(map[string]string{"connection_id": connectionID, "pending_request_id": pendingRequestID, "rule_id": fmt.Sprintf("%d", rule.ID)})
+				_ = w.Store.InsertAudit(eventID, "auto_approved", audit)
+			} else {
+				_ = w.Store.InsertAudit(eventID, "auto_approved", []byte(fmt.Sprintf(`{"connection_id":"%s","rule_id":%d,"approved":true,"note":"no pending_request_id found in snapshot"}`, connectionID, rule.ID)))
 			}
 			// mark idempotency for webhook-originated events is handled by processEvent/reserved key logic
 			_ = w.Store.MarkIdempotencyDone("event:" + eventID)
