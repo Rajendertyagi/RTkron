@@ -12,6 +12,7 @@ import (
     "fmt"
     "io"
     "log"
+    "net"
     "net/http"
     "os"
     "os/exec"
@@ -108,15 +109,19 @@ func main() {
     // UI Handlers
     api.RegisterUIHandlers(mux, dbStore)
 
-    // gocron-ui scheduler dashboard at /scheduler
+    adminWrap := chooseAdminWrapper(cfg.AdminToken)
+
+    // gocron-ui scheduler dashboard at /scheduler (admin-protected)
     if wp.Scheduler() != nil {
         port, _ := strconv.Atoi(cfg.ServerPort)
         srv := gocronui.NewServer(wp.Scheduler(), port, gocronui.WithTitle("RTkron Scheduler"))
-        mux.Handle("/scheduler/", http.StripPrefix("/scheduler", srv.Router))
+        mux.Handle("/scheduler/", adminWrap(http.StripPrefix("/scheduler", srv.Router)))
     }
 
-    // JSON API endpoints for UI data
-    api.RegisterUIDataRoutes(mux, dbStore.DB)
+    // JSON API endpoints for UI data (admin-protected)
+    apiMux := http.NewServeMux()
+    api.RegisterUIDataRoutes(apiMux, dbStore.DB)
+    mux.Handle("/api/", adminWrap(apiMux))
 
     srv := &http.Server{
         Addr:    ":" + cfg.ServerPort,
@@ -180,6 +185,56 @@ func loggingMiddleware(next http.Handler) http.Handler {
         next.ServeHTTP(w, r)
         log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
     })
+}
+
+// adminAuthMiddleware enforces a bearer token or X-Admin-Token header.
+// If token is empty, this middleware should not be used (use requireLocalhostMiddleware instead).
+func adminAuthMiddleware(token string, next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Accept Authorization: Bearer <token> or X-Admin-Token: <token>
+        auth := r.Header.Get("Authorization")
+        if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+            if strings.TrimSpace(auth[len("bearer "):]) == token {
+                next.ServeHTTP(w, r)
+                return
+            }
+        }
+        if xt := r.Header.Get("X-Admin-Token"); xt != "" && xt == token {
+            next.ServeHTTP(w, r)
+            return
+        }
+        // Not authorized
+        w.Header().Set("WWW-Authenticate", `Bearer realm="admin"`)
+        http.Error(w, "unauthorized", http.StatusUnauthorized)
+    })
+}
+
+// requireLocalhostMiddleware restricts access to requests coming from loopback addresses.
+// Useful when ADMIN_TOKEN is not set and you want the UI bound to local-only access.
+func requireLocalhostMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        host, _, err := net.SplitHostPort(r.RemoteAddr)
+        if err != nil {
+            // If RemoteAddr isn't host:port, fall back to raw value
+            host = r.RemoteAddr
+        }
+        // Accept IPv4/IPv6 loopback and "localhost"
+        if host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "localhost") {
+            next.ServeHTTP(w, r)
+            return
+        }
+        http.Error(w, "forbidden", http.StatusForbidden)
+    })
+}
+
+// chooseAdminWrapper returns a handler wrapper that enforces admin access according to cfg.AdminToken.
+// If cfg.AdminToken != "" -> use adminAuthMiddleware; otherwise use requireLocalhostMiddleware.
+func chooseAdminWrapper(adminToken string) func(http.Handler) http.Handler {
+    if strings.TrimSpace(adminToken) != "" {
+        return func(h http.Handler) http.Handler { return adminAuthMiddleware(adminToken, h) }
+    }
+    // no token configured -> restrict to loopback only
+    return func(h http.Handler) http.Handler { return requireLocalhostMiddleware(h) }
 }
 
 func handleWebhook(w http.ResponseWriter, r *http.Request, s *store.SQLiteStore, cfg *config.Config, wp *worker.WorkerPool) {

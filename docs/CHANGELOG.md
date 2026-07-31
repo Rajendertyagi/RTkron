@@ -15,6 +15,18 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Admin Auth Middleware] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `cmd/rtkron/main.go`
+- **Summary of Changes:**
+  - Fixed critical audit finding #2 (no authentication / dead AdminToken): added `adminAuthMiddleware` (Bearer or `X-Admin-Token`), `requireLocalhostMiddleware` (loopback-only), and `chooseAdminWrapper` (token → auth, else loopback).
+  - Wrapped `/scheduler/` (gocron-ui) and `/api/*` (stats/activity) with `chooseAdminWrapper(cfg.AdminToken)`. `/webhook/codeg` and `/healthz` remain public (HMAC-protected / liveness).
+  - Design from user (Rahul).
+  - **Note:** when `ADMIN_TOKEN` is set, browsers don't send the auth header on page loads or fetch, so the dashboard's `/api/*` polls and direct `/scheduler/` navigation will return 401 — loopback-only mode works without a token.
+
+---
+
 ## [Phase 4 - Webhook Idempotency Fix] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

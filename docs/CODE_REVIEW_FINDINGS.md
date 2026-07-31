@@ -20,6 +20,7 @@
 - `AdminToken` is loaded from env but never enforced on any handler.
 - gocron-ui is mounted unauthenticated at `/scheduler/` and exposes `POST/DELETE /scheduler/api/jobs`, `POST /scheduler/api/jobs/{id}/run`, `POST /scheduler/api/scheduler/stop` — any network caller can create/delete jobs, run them, or stop the scheduler.
 - **Recommended direction:** enforce `AdminToken` (Bearer/header) on `/scheduler/*` and all `/api/*` admin routes, or bind the dashboard to loopback only.
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 4 - Admin Auth Middleware"). `chooseAdminWrapper` selects `adminAuthMiddleware` (Bearer/`X-Admin-Token`) when `ADMIN_TOKEN` is set, else `requireLocalhostMiddleware`; applied to `/scheduler/` and `/api/*`. Caveat: browsers don't send the header on page loads/fetches, so with a token the dashboard polls and direct `/scheduler/` navigation return 401.
 
 ---
 
