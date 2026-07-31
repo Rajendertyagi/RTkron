@@ -38,6 +38,7 @@
 - `handleTurnComplete` marks `turn:<turnID>` done (deferred, `pool.go:259-261`), then on transient failure re-enqueues an event with the **same `turn_id`** (`pool.go:328-335`). When the retry is processed, `pool.go:250-257` rejects it as a duplicate turn.
 - **Impact:** transient `SendPrompt` failures never actually retry; `inst.Retries` climbs to 3 and the event lands in the dead letter queue.
 - **Recommended direction:** on retry, either reuse the existing turn-idempotency reservation or use a distinct turn key per attempt.
+- **STATUS: FIXED** (commit pending, see CHANGELOG "Phase 5 - Turn Retry Attempt Keys + AcpPrompt"). `handleTurnComplete` now reserves a per-attempt key `turn:<turnID>:attempt:<n>` at processing time (no pre-reservation when scheduling the retry envelope, which had caused the retry to be dropped as "already reserved"); retries enqueue a reserved envelope whose attempt key is reserved fresh when processed.
 
 ### 5. DoS surface
 - **Files:** `cmd/rtkron/main.go:190,121-124`

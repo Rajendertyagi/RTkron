@@ -15,6 +15,19 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 5 - Turn Retry Attempt Keys + AcpPrompt] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/worker/pool.go`
+  - `internal/codeg/client.go`
+- **Summary of Changes:**
+  - Fixed audit finding #4 (dead retry mechanism). `handleTurnComplete` now uses a per-attempt idempotency key `turn:<turnID>:attempt:<n>`; the next attempt key is **not** pre-reserved when scheduling a retry (that caused "attempt key already reserved" → retry dropped), it is reserved by `handleTurnComplete` when the retry envelope is actually processed.
+  - `processEvent` now extracts `connection_id`/`session_id`/`turn_id` and dispatches via the multi-param signature `handleTurnComplete(ctx, eventID, connectionID, sessionID, turnID, ev)`.
+  - Renamed `Client.SendPrompt` → `Client.AcpPrompt(ctx, payload []byte, idempotencyKey string)` to strictly match the architecture document. The idempotency key is sent as the `Idempotency-Key` HTTP header; the JSON payload map is NOT modified.
+  - Extracted the duplicated retry-scheduling blocks into a shared `scheduleRetry` helper.
+
+---
+
 ## [Phase 5 - Dashboard Schema Fix] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

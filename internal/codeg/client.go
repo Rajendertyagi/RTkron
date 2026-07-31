@@ -33,7 +33,7 @@ func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
     }
 }
 
-func (c *Client) SendPrompt(ctx context.Context, payload []byte) ([]byte, error) {
+func (c *Client) AcpPrompt(ctx context.Context, payload []byte, idempotencyKey string) ([]byte, error) {
     ctx, cancel := context.WithTimeout(ctx, c.timeout)
     defer cancel()
 
@@ -43,6 +43,9 @@ func (c *Client) SendPrompt(ctx context.Context, payload []byte) ([]byte, error)
     }
     req = req.WithContext(ctx)
     req.Header.Set("Content-Type", "application/json")
+    if idempotencyKey != "" {
+        req.Header.Set("Idempotency-Key", idempotencyKey)
+    }
     if c.apiKey != "" {
         req.Header.Set("Authorization", "Bearer "+c.apiKey)
     }
