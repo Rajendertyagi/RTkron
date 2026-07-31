@@ -15,6 +15,21 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Zero Inline JS/Styles Refactor] - 2026-08-01
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/api/static/index.html`
+  - `internal/api/static/app.js`
+  - `internal/api/static/style.css`
+- **Summary of Changes:**
+  - Removed all inline `style="..."` and `onclick="..."` from `index.html`: `#powered-by` and `#error-banner` now use a `.hidden` utility class; the error-banner close button uses `data-action="hide-error"`.
+  - Replaced inline `onclick` handlers injected by `renderJobCard` (run, delete, toggle-schedule) with `data-action`/`data-id`/`data-name` attributes handled by event delegation on `#jobs-container`.
+  - Toggled `#policy-empty` and schedule-details visibility via `hidden` class instead of `element.style.display`; added `.job-schedule-item` class for the schedule block's bottom margin.
+  - Added `escapeAttr` helper (HTML-encodes + `&quot;`) for attribute-safe data binding of `job.id`/`job.name`.
+  - HTML now has zero inline styles and zero inline JS; `app.js` no longer writes `element.style.*` anywhere.
+
+---
+
 ## [Phase 4 - Codeg Tools (Payload Builder + Auto-Approve Security Center)] - 2026-08-01
 - **Agent:** OpenCode
 - **Files Modified:**

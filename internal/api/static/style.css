@@ -314,6 +314,10 @@ body {
     gap: 0.25rem;
 }
 
+.job-info-item.job-schedule-item {
+    margin-bottom: 1rem;
+}
+
 .job-info-label {
     font-size: 0.75rem;
     color: #94a3b8;
@@ -429,14 +433,15 @@ body {
     opacity: 1;
 }
 
-.schedule-details[style*="display: none"] {
+.schedule-details.hidden {
+    display: none;
     max-height: 0;
     opacity: 0;
 }
 
-.schedule-details[style*="display: block"] {
-    max-height: 500px;
-    opacity: 1;
+/* Utility: hidden state (no inline styles anywhere) */
+.hidden {
+    display: none !important;
 }
 
 .schedule-item {

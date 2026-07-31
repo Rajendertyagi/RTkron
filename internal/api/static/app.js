@@ -15,6 +15,31 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPolicy();
     setInterval(loadJobs, 3000);
 
+    // error banner close (data-action delegation)
+    document.getElementById('error-banner').addEventListener('click', (e) => {
+        if (e.target.closest('button[data-action="hide-error"]')) {
+            hideError();
+        }
+    });
+
+    // job card actions (run / delete / toggle schedule) via data-action delegation
+    document.getElementById('jobs-container').addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) {
+            return;
+        }
+        const action = btn.getAttribute('data-action');
+        const id = btn.getAttribute('data-id');
+        if (action === 'run-job') {
+            handleRunJob(id);
+        } else if (action === 'delete-job') {
+            const name = btn.getAttribute('data-name') || id;
+            handleDeleteJob(id, name);
+        } else if (action === 'toggle-schedule') {
+            toggleSchedule(id);
+        }
+    });
+
     // Codeg Tools
     document.getElementById('payload-builder-form').addEventListener('submit', submitPayloadBuilder);
     document.getElementById('policy-form').addEventListener('submit', submitPolicy);
@@ -78,11 +103,11 @@ function showError(message) {
     const banner = document.getElementById('error-banner');
     const messageEl = document.getElementById('error-message');
     messageEl.textContent = message;
-    banner.style.display = 'flex';
+    banner.classList.remove('hidden');
 }
 
 function hideError() {
-    document.getElementById('error-banner').style.display = 'none';
+    document.getElementById('error-banner').classList.add('hidden');
 }
 
 // API Functions
@@ -228,7 +253,7 @@ async function loadPolicy() {
         }
         const rules = await response.json();
         if (rules && rules.length > 0) {
-            empty.style.display = 'none';
+            empty.classList.add('hidden');
             list.innerHTML = rules.map(rule => `
                 <li class="policy-item">
                     <code>${escapeHtml(rule.connection_id)}</code>
@@ -236,11 +261,11 @@ async function loadPolicy() {
                 </li>
             `).join('');
         } else {
-            empty.style.display = 'block';
+            empty.classList.remove('hidden');
             list.innerHTML = '';
         }
     } catch (err) {
-        empty.style.display = 'block';
+        empty.classList.remove('hidden');
         empty.textContent = 'Failed to load policy rules';
         list.innerHTML = '';
     }
@@ -317,14 +342,19 @@ function renderJobCard(job) {
                 <div class="job-actions">
                     <button
                         class="btn btn-success btn-sm"
-                        onclick="handleRunJob('${job.id}')"
+                        type="button"
+                        data-action="run-job"
+                        data-id="${escapeAttr(job.id)}"
                         title="Run now"
                     >
                         ▶️
                     </button>
                     <button
                         class="btn btn-danger btn-sm"
-                        onclick="handleDeleteJob('${job.id}', '${escapeHtml(job.name)}')"
+                        type="button"
+                        data-action="delete-job"
+                        data-id="${escapeAttr(job.id)}"
+                        data-name="${escapeAttr(job.name)}"
                         title="Delete"
                     >
                         🗑️
@@ -339,7 +369,7 @@ function renderJobCard(job) {
             ` : ''}
 
             ${job.schedule ? `
-                <div class="job-info-item" style="margin-bottom: 1rem;">
+                <div class="job-info-item job-schedule-item">
                     <span class="job-info-label">Schedule:</span>
                     <div class="job-info-value">
                         <span class="schedule-badge">${escapeHtml(job.schedule)}</span>
@@ -370,10 +400,10 @@ function renderJobCard(job) {
 
             ${job.nextRuns && job.nextRuns.length > 0 ? `
                 <div class="job-schedule">
-                    <button class="schedule-toggle" onclick="toggleSchedule('${job.id}')">
-                        <span id="toggle-icon-${job.id}">${expandedSchedules.has(job.id) ? '🔽' : '▶️'}</span> Upcoming Runs
+                    <button class="schedule-toggle" type="button" data-action="toggle-schedule" data-id="${escapeAttr(job.id)}">
+                        <span id="toggle-icon-${escapeAttr(job.id)}">${expandedSchedules.has(job.id) ? '🔽' : '▶️'}</span> Upcoming Runs
                     </button>
-                    <div id="schedule-${job.id}" class="schedule-details" style="display: ${expandedSchedules.has(job.id) ? 'block' : 'none'};">
+                    <div id="schedule-${escapeAttr(job.id)}" class="schedule-details${expandedSchedules.has(job.id) ? '' : ' hidden'}">
                         ${job.nextRuns.map(run => `
                             <div class="schedule-item">📌 ${formatDateTime(run)}</div>
                         `).join('')}
@@ -388,12 +418,12 @@ function toggleSchedule(jobId) {
     const details = document.getElementById(`schedule-${jobId}`);
     const icon = document.getElementById(`toggle-icon-${jobId}`);
 
-    if (details.style.display === 'none') {
-        details.style.display = 'block';
+    if (details.classList.contains('hidden')) {
+        details.classList.remove('hidden');
         icon.textContent = '🔽';
         expandedSchedules.add(jobId); // remember this is expanded
     } else {
-        details.style.display = 'none';
+        details.classList.add('hidden');
         icon.textContent = '▶️';
         expandedSchedules.delete(jobId); // remember this is collapsed
     }
@@ -429,4 +459,8 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function escapeAttr(text) {
+    return escapeHtml(String(text)).replace(/"/g, '&quot;');
 }
