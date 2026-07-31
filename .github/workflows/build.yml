@@ -1,0 +1,36 @@
+name: Build Codeg Manager
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Tidy Go Modules
+        run: go mod tidy
+
+      - name: Build for Windows
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o codegmanager.exe ./cmd/rtkron
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codegmanager-windows
+          path: codegmanager.exe

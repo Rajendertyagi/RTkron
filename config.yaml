@@ -1,0 +1,10 @@
+# RTkron Configuration
+# These values can be overridden by environment variables (.env)
+
+port: 3090
+db_path: ./data/codegmanager.db
+codeg_base_url: http://localhost:3080/api
+
+security:
+  auto_approve: false
+  disable_signature_validation: true
