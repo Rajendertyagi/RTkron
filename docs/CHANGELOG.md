@@ -15,6 +15,22 @@ This file acts as the primary synchronization bridge to ensure Antigravity (the 
 
 ---
 
+## [Phase 4 - Code Quality Fixes] - 2026-07-31
+- **Agent:** OpenCode
+- **Files Modified:**
+  - `internal/codeg/client.go`
+  - `internal/worker/pool.go`
+  - `cmd/rtkron/main.go`
+- **Summary of Changes:**
+  - Fixed `AcpRespondPermission` to build the request body with `json.Marshal` instead of `fmt.Sprintf` (unescaped-string / malformed JSON bug class).
+  - Fixed `SchedulePromptCron` to deep-copy the scheduled payload via `json.Decoder.UseNumber()` so the closure no longer shares nested map/slice references with the caller (data race risk) and int64 IDs keep full precision.
+  - Replaced all remaining hand-built JSON (`fmt.Sprintf` with raw strings) in `pool.go` with `json.Marshal` — fixes escaped-string corruption in audit records and the turn_complete prompt payload.
+  - Consolidated the duplicate OS-signal / tray-quit shutdown goroutines in `main.go` behind a single `sync.Once` path, eliminating the double `close(idleConnsClosed)` panic risk and double `wp.Stop()`.
+  - Mounted gocron-ui with the real configured port and `WithTitle("RTkron Scheduler")` instead of a misleading hard-coded `0` (the port argument is unused by gocron-ui v0.3.0).
+  - Known limitation (reported, not fixable upstream): gocron-ui v0.3.0 always starts a background `broadcastJobUpdates` goroutine; there is no `Shutdown()` or handler-only constructor. It is a 1s idle ticker and does not block process exit.
+
+---
+
 ## [Phase 4 - gocron v2 Upgrade & gocron-ui] - 2026-07-31
 - **Agent:** OpenCode
 - **Files Modified:**

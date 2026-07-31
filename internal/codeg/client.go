@@ -2,6 +2,7 @@ package codeg
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "io"
     "time"
@@ -91,8 +92,15 @@ func (c *Client) AcpGetSessionSnapshot(ctx context.Context, sessionID string) ([
 func (c *Client) AcpRespondPermission(ctx context.Context, pendingRequestID, decision, reason string) ([]byte, error) {
     ctx, cancel := context.WithTimeout(ctx, c.timeout)
     defer cancel()
-    payload := fmt.Sprintf(`{"pending_request_id":"%s","decision":"%s","reason":"%s"}`, pendingRequestID, decision, reason)
-    req, err := retryablehttp.NewRequest("POST", c.baseURL+"/acp/respond_permission", []byte(payload))
+    body, err := json.Marshal(map[string]string{
+        "pending_request_id": pendingRequestID,
+        "decision":           decision,
+        "reason":             reason,
+    })
+    if err != nil {
+        return nil, fmt.Errorf("marshal respond_permission payload: %w", err)
+    }
+    req, err := retryablehttp.NewRequest("POST", c.baseURL+"/acp/respond_permission", body)
     if err != nil {
         return nil, err
     }

@@ -18,7 +18,9 @@ import (
     "os/signal"
     "path/filepath"
     "runtime"
+    "strconv"
     "strings"
+    "sync"
     "syscall"
     "time"
 
@@ -108,7 +110,8 @@ func main() {
 
     // gocron-ui scheduler dashboard at /scheduler
     if wp.Scheduler() != nil {
-        srv := gocronui.NewServer(wp.Scheduler(), 0)
+        port, _ := strconv.Atoi(cfg.ServerPort)
+        srv := gocronui.NewServer(wp.Scheduler(), port, gocronui.WithTitle("RTkron Scheduler"))
         mux.Handle("/scheduler/", http.StripPrefix("/scheduler", srv.Router))
     }
 
@@ -121,21 +124,27 @@ func main() {
     }
 
     idleConnsClosed := make(chan struct{})
+    shutdownCh := make(chan struct{})
+    var shutdownOnce sync.Once
     go func() {
         sigCh := make(chan os.Signal, 1)
         signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-        <-sigCh
-        log.Println("shutdown signal received")
-        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-        defer cancel()
-        wp.Stop()
-        if err := srv.Shutdown(ctx); err != nil {
-            log.Printf("HTTP server Shutdown: %v", err)
+        select {
+        case <-sigCh:
+            log.Println("shutdown signal received")
+        case <-shutdownCh:
+            log.Println("tray requested quit: shutting down")
         }
-        cancel()
-        close(idleConnsClosed)
+        shutdownOnce.Do(func() {
+            ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+            defer cancel()
+            wp.Stop()
+            if err := srv.Shutdown(ctx); err != nil {
+                log.Printf("HTTP server Shutdown: %v", err)
+            }
+            close(idleConnsClosed)
+        })
     }()
-
     if cfg.AutoOpenBrowser {
         go func() {
             time.Sleep(300 * time.Millisecond)
@@ -152,20 +161,6 @@ func main() {
     }
 
     log.Printf("listening on :%s", cfg.ServerPort)
-
-    shutdownCh := make(chan struct{})
-    go func() {
-        <-shutdownCh
-        log.Println("shutting down HTTP server")
-        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-        defer cancel()
-        wp.Stop()
-        if err := srv.Shutdown(ctx); err != nil {
-            log.Printf("HTTP server Shutdown: %v", err)
-        }
-        cancel()
-        close(idleConnsClosed)
-    }()
 
     tray.StartTray(ctx, cfg.ServerPort, func() {
         log.Println("tray requested quit: shutting down")

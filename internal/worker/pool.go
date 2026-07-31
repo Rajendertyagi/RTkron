@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -76,12 +77,18 @@ func (w *WorkerPool) SchedulePromptCron(cronExpr string, jobID string, payload m
 		return fmt.Errorf("scheduler not initialized")
 	}
 
-	pl := make(map[string]interface{}, len(payload))
-	for k, v := range payload {
-		pl[k] = v
+	var pl map[string]interface{}
+	bs, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(bs))
+	dec.UseNumber()
+	if err := dec.Decode(&pl); err != nil {
+		return fmt.Errorf("copy payload: %w", err)
 	}
 
-	_, err := w.scheduler.NewJob(
+	_, err = w.scheduler.NewJob(
 		gocron.CronJob(cronExpr, false),
 		gocron.NewTask(func() {
 			ev := map[string]interface{}{
@@ -225,9 +232,8 @@ func (w *WorkerPool) handlePermissionRequest(ctx context.Context, eventID, conne
 		if err != nil {
 			return fmt.Errorf("acp_respond_permission: %w", err)
 		}
-		if err := w.Store.InsertAudit(eventID, "auto_approved", []byte(fmt.Sprintf(`{"pending_request_id":"%s"}`, pendingRequestID))); err != nil {
-			log.Printf("handlePermissionRequest: audit insert after approve failed: %v", err)
-		}
+		audit, _ := json.Marshal(map[string]string{"pending_request_id": pendingRequestID})
+		_ = w.Store.InsertAudit(eventID, "auto_approved", audit)
 		return nil
 	}
 
@@ -282,7 +288,8 @@ func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connection
 		inst.Status = "completed"
 		inst.CurrentNode = ""
 		_ = w.Store.UpdateInstance(inst)
-		_ = w.Store.InsertAudit(eventID, "workflow_completed", []byte(fmt.Sprintf(`{"instance_id":"%s"}`, inst.ID)))
+		audit, _ := json.Marshal(map[string]string{"instance_id": inst.ID})
+		_ = w.Store.InsertAudit(eventID, "workflow_completed", audit)
 		return nil
 	}
 
@@ -303,7 +310,11 @@ func (w *WorkerPool) handleTurnComplete(ctx context.Context, eventID, connection
 		return nil
 	}
 
-	resp, err := w.Client.SendPrompt(ctx, []byte(fmt.Sprintf(`{"workflow_id":"%s","instance_id":"%s","node":"%s","session_id":"%s","connection":"%s","trigger":"turn_complete"}`, inst.WorkflowID, inst.ID, nextNode, sessionID, connectionID)))
+	promptPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal prompt payload: %w", err)
+	}
+	resp, err := w.Client.SendPrompt(ctx, promptPayload)
 	if err != nil {
 		inst.Retries++
 		_ = w.Store.UpdateInstance(inst)
